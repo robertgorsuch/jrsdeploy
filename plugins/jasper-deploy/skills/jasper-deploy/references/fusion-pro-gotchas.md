@@ -38,6 +38,12 @@ element is wrong. The notes below are the ones that cost trial-and-error.
   `…/jasperserver-pro/fusion/maps/fusioncharts.<map>.js`.
 - A map/chart in a band that fills before row iteration (e.g. `title`) needs
   `evaluationTime="Report"` or it binds zero data.
+- **Texas map keys are 3-digit FIPS strings.** `fusioncharts.texas.js` writes
+  FIPS < 100 as quoted zero-padded keys (`"001"`) and >= 101 as bare ints (`113`).
+  Bind `idExpression` to the raw `countyfp` (`'001'`), never `(countyfp::int)::text`
+  (`'1'`): the cast leaves 50 counties unbound and they render in the default fill
+  with no error. Diff keys vs data with
+  `curl <server>/fusion/maps/fusioncharts.texas.js` + a regex on `"(\d+)":\{outlines`.
 
 ## KPI gauges — prefer the JFreeChart meter over the Pro angular gauge
 - **FusionWidgets `fm:angularGauge`** is Pro-only and deploys with an opaque 400

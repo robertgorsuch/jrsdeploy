@@ -374,9 +374,11 @@ python -c "import pypdfium2 as p; p.PdfDocument(r'out.pdf')[0].render(scale=3).t
 ```
 
 FusionMaps geometry lives in `…\jasperserver-pro\fusion\maps\fusioncharts.*.js`.
-The installed **`Texas`** map (`fusioncharts.texas.js`) is keyed by **county FIPS**
-(no zero-padding), so bind `idExpression` to `(countyfp::int)::text` — no lookup
-table. Other Pro options present on this server: Fusion charts/gauges/widgets
+The installed **`Texas`** map (`fusioncharts.texas.js`) is keyed by **3-digit county
+FIPS**: FIPS < 100 are quoted, zero-padded keys (`"001"`, `"029"`), FIPS >= 101 are
+bare integers (`113`, `201`). Bind `idExpression` to the raw `countyfp` string — NOT
+`(countyfp::int)::text`, which silently unbinds the 50 sub-100 counties (they fall to
+the map's default fill; `tx_county_density_heatmap.jrxml` is the corrected form). Other Pro options present on this server: Fusion charts/gauges/widgets
 (`jasperreports-fusion`), HighCharts heatmap/treemap/solid-gauge, and Ad Hoc
 views/dashboards (web-UI, not jrxml). Get jrxml syntax from the bundled samples,
 e.g. fetch `/public/Samples/Reports/ProfitDetailReport` (HTML5) or
