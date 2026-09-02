@@ -3,7 +3,7 @@
   Texas population density choropleth by county. PRO FusionMaps component
   (legacy 6.x jrxml, fm:map namespace) rendered server-side by JasperReports
   Server. The installed "Texas" map (fusion/maps/fusioncharts.texas.js) is keyed
-  by county FIPS, so idExpression binds straight to (countyfp::int)::text.
+  by 3-digit county FIPS ("001"), so idExpression binds the raw countyfp string.
   NOT locally compilable - validate by deploy + run on the server.
 -->
 <jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports"
@@ -12,7 +12,7 @@
               name="tx_county_density_map" pageWidth="842" pageHeight="595" columnWidth="802"
               leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20"
               uuid="c1d2e3f4-0010-0002-0003-000000000001">
-	<queryString><![CDATA[SELECT (b.countyfp::int)::text AS map_id, c.name AS county, round((p.pop / b.land_km2)::numeric, 1) AS density FROM (SELECT countyfp, sum(aland)/1000000.0 AS land_km2 FROM tiger_data.tx_bg GROUP BY countyfp) b JOIN (SELECT countyfp, sum(pop) AS pop FROM tiger_data.tx_tabblock20 GROUP BY countyfp) p ON p.countyfp = b.countyfp JOIN tiger.county c ON c.statefp = '48' AND c.countyfp = b.countyfp WHERE b.land_km2 > 0 ORDER BY density DESC]]></queryString>
+	<queryString><![CDATA[SELECT b.countyfp AS map_id, c.name AS county, round((p.pop / b.land_km2)::numeric, 1) AS density FROM (SELECT countyfp, sum(aland)/1000000.0 AS land_km2 FROM tiger_data.tx_bg GROUP BY countyfp) b JOIN (SELECT countyfp, sum(pop) AS pop FROM tiger_data.tx_tabblock20 GROUP BY countyfp) p ON p.countyfp = b.countyfp JOIN tiger.county c ON c.statefp = '48' AND c.countyfp = b.countyfp WHERE b.land_km2 > 0 ORDER BY density DESC]]></queryString>
 	<field name="map_id" class="java.lang.String"/>
 	<field name="county" class="java.lang.String"/>
 	<field name="density" class="java.math.BigDecimal"/>
