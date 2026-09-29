@@ -180,6 +180,37 @@ java --class-path "$env:JR_LIB_DIR\*" `
     report\RenderPng.java report\my_report.jasper out.png   # optional 3rd arg = page index
 ```
 
+### deploy_report.ps1 result object and existence checks
+
+`deploy_report.ps1` writes ONE object to the pipeline when it succeeds
+(`New-JrsDeployResult` in `_jrs_common.ps1`): `Uri`, `Code` (HTTP), `Status`
+(`OK`), `ControlsAttached` (int), `Message`. The progress lines still go to
+the host stream, which a `2>&1` redirect does NOT capture under Windows
+PowerShell 5.1 -- test the object, not the text:
+```powershell
+$r = & .\deploy_report.ps1 -Jrxml report\x.jrxml -TargetUri /reports/x -Overwrite -Env stage
+if ($r.Status -ne "OK") { throw $r.Message }
+$r.ControlsAttached      # 0 unless -Control/-QueryControl were given
+```
+Failures throw (exit code 1 under `powershell -File`). A 403/400
+`resource.in.use` -- the report is a dashlet of a live dashboard; the lock
+blocks `?overwrite=true` as well -- is explained with the dashboard(s) that
+reference it (`Get-JrsDashboardsReferencing`) and the way out:
+`compose_dashboard.ps1 -Manifest ... -Replace -Backup` to export,
+drop and recompose the owning dashboard.
+
+Existence checks: `Invoke-JrsGet` returns `{ Code = "404" }` instead of
+throwing, so `if (Invoke-JrsGet ...)` is always true. Use the helpers:
+```powershell
+. .\scripts\_jrs_common.ps1
+$jrs = Resolve-JrsConfig -Env stage
+Test-JrsResource   -Jrs $jrs -Uri /reports/x                    # [bool], $true only on HTTP 200
+Assert-JrsResource -Jrs $jrs -Uri /reports/x -What "report unit" # throws "report unit not found on <server> [env stage]: /reports/x (HTTP 404)"
+Test-JrsResource -Uri /reports/x -Env prod                       # resolves the server itself when -Jrs is omitted
+```
+For a whole dashboard suite (exists + render + byte-diff against git +
+controls) use `verify_suite.ps1` -- see `references/ci-smoke.md`.
+
 ### Big reports — async execution (`reportExecutions`)
 The synchronous `/reports/{uri}.{fmt}` endpoint blocks until the fill finishes
 and can time out on large reports (the `tx_density_blockgroup_report*` reports
@@ -343,9 +374,11 @@ python -c "import pypdfium2 as p; p.PdfDocument(r'out.pdf')[0].render(scale=3).t
 ```
 
 FusionMaps geometry lives in `…\jasperserver-pro\fusion\maps\fusioncharts.*.js`.
-The installed **`Texas`** map (`fusioncharts.texas.js`) is keyed by **county FIPS**
-(no zero-padding), so bind `idExpression` to `(countyfp::int)::text` — no lookup
-table. Other Pro options present on this server: Fusion charts/gauges/widgets
+The installed **`Texas`** map (`fusioncharts.texas.js`) is keyed by **3-digit county
+FIPS**: FIPS < 100 are quoted, zero-padded keys (`"001"`, `"029"`), FIPS >= 101 are
+bare integers (`113`, `201`). Bind `idExpression` to the raw `countyfp` string — NOT
+`(countyfp::int)::text`, which silently unbinds the 50 sub-100 counties (they fall to
+the map's default fill; `tx_county_density_heatmap.jrxml` is the corrected form). Other Pro options present on this server: Fusion charts/gauges/widgets
 (`jasperreports-fusion`), HighCharts heatmap/treemap/solid-gauge, and Ad Hoc
 views/dashboards (web-UI, not jrxml). Get jrxml syntax from the bundled samples,
 e.g. fetch `/public/Samples/Reports/ProfitDetailReport` (HTML5) or
@@ -354,3 +387,17 @@ e.g. fetch `/public/Samples/Reports/ProfitDetailReport` (HTML5) or
 ## Reference reports known to compile and render
 - `..\..\report\tx_density_blockgroup_report_jr7.jrxml` (tabular + groups)
 - `..\..\report\metro_population_piechart.jrxml` (pie chart)
+
+## Style templates / charts: gotchas
+The failure modes for `.jrtx` style templates and JFreeChart plots live with the
+element reference, not here:
+- `jr7-schema.md` G12: the default-style attribute is `default="true"`, never the
+  6.x `isDefault="true"` (strict Jackson throws a generic 400 at fill).
+- `jr7-schema.md` G1 / G55: line plots take `showLines`/`showShapes`; bar and
+  stackedbar take `showTickMarks`/`showTickLabels`; an area plot takes NEITHER,
+  so `--chart area` emits a bare `<plot/>`. `lint_jrxml.ps1` enforces all three.
+- `jr7-schema.md` G2: pie gradients are repeated `<seriesColor order=...>`.
+- `jr7-schema.md` G5: `--chart bar` gradients need
+  `chart_customizers/actian-chart-customizers.jar` in the server's `WEB-INF/lib`
+  (survives restarts, not a reinstall); `--no-gradient` needs no jar.
+- Symptom lookup for all of the above: `gotchas.md`.

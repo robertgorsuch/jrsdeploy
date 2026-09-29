@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Operations Console: Promotion Mix, 100% stacked bar within the current
+     filter set (percent is of the FILTERED total, so the stack always sums to
+     100 regardless of which slice of data is selected - if p_promo narrows to
+     a single type the panel correctly shows a single 100% segment). Same
+     visual pattern as exec_promo_mix.jrxml (percent computed in SQL, explicit
+     seriesColor per code since GradientTrendCustomizer does not apply to
+     stackedBar per gotcha G7). dash_monthly's promotiontype is already
+     TRIM(COALESCE(...,'')) normalized at table-build time, so no extra
+     normalization is needed here (only the base-table subquery in
+     ops_kpi_chips.jrxml needs that). -->
+<jasperReport name="ops_promo_panel" language="java" pageWidth="950" pageHeight="300" columnWidth="910" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20">
+	<parameter name="p_from" class="java.util.Date">
+		<defaultValueExpression><![CDATA[new java.text.SimpleDateFormat("yyyy-MM-dd").parse("2019-01-01")]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_to" class="java.util.Date">
+		<defaultValueExpression><![CDATA[new java.text.SimpleDateFormat("yyyy-MM-dd").parse("2020-12-31")]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_promo" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_period" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT promotiontype, ROUND(SUM(sales_ext)*100.0/(
+    SELECT SUM(sales_ext) FROM dash_monthly
+    WHERE (yr*100+mo) BETWEEN YEAR($P{p_from})*100+MONTH($P{p_from}) AND YEAR($P{p_to})*100+MONTH($P{p_to})
+      AND $X{IN, storeregion, p_regions}
+      AND ($P{p_promo} = 'All' OR ($P{p_promo} = 'NONE' AND promotiontype = '') OR promotiontype = $P{p_promo})
+      AND ($P{p_period} = 'All' OR pandemic_period = $P{p_period})
+  ),1) AS pct
+FROM dash_monthly
+WHERE (yr*100+mo) BETWEEN YEAR($P{p_from})*100+MONTH($P{p_from}) AND YEAR($P{p_to})*100+MONTH($P{p_to})
+  AND $X{IN, storeregion, p_regions}
+  AND ($P{p_promo} = 'All' OR ($P{p_promo} = 'NONE' AND promotiontype = '') OR promotiontype = $P{p_promo})
+  AND ($P{p_period} = 'All' OR pandemic_period = $P{p_period})
+GROUP BY 1 ORDER BY 2 DESC
+	]]></query>
+
+	<field name="promotiontype" class="java.lang.String"/>
+	<field name="pct" class="java.math.BigDecimal"/>
+
+	<title height="40">
+		<element kind="image" x="0" y="0" width="32" height="32" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="910" height="20" fontSize="15.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Promotion Mix]]></text></element>
+		<element kind="staticText" x="0" y="21" width="910" height="12" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Share of net sales for the selected date range, region, and period]]></text></element>
+	</title>
+
+	<summary height="220">
+		<element kind="chart" chartType="stackedBar" x="0" y="0" width="910" height="220" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA[$F{promotiontype} == null || $F{promotiontype}.trim().isEmpty() ? "No Promotion" : $F{promotiontype}]]></seriesExpression>
+					<categoryExpression><![CDATA["Promotion Mix"]]></categoryExpression>
+					<valueExpression><![CDATA[$F{pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" showLabels="true">
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#1DB6C0"/>
+				<seriesColor order="2" color="#0A4CAD"/>
+				<seriesColor order="3" color="#239CA8"/>
+			</plot>
+		</element>
+	</summary>
+
+</jasperReport>

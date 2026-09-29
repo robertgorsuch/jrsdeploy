@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Churn Action List: the paginated drill target behind the recommended-action
+     tile on the Customer Retention board. One row per at-risk customer with the
+     two strongest churn drivers, the retention action the model recommends, and
+     the date the customer would next have been expected to buy.
+
+     PARAMETERS - p_region and p_score_date are both Strings, matching the drill
+     contract the dashboard tile passes. p_region defaults to "All" and is
+     compared as a String, so it carries NO cast and uses the sibling reports'
+     'All' = $P{...} OR column = $P{...} idiom. p_score_date is a yyyy-MM-dd
+     String widened to a date in the predicate.
+
+     DESIGN NOTES:
+
+     1. THE LIST IS RANKED AND CAPPED, AND SAYS SO. The unrestricted population
+        (High or Critical, with a recommended action, at the default score date)
+        is 1,357,153 customers - not a list anyone can work, and not a document
+        anyone can render. The detail band is therefore capped to the 500
+        customers with the most lifetime value at risk, the same precedent as
+        the Phase 1 payment-run roll-up. Because a silent cap is a lie, the
+        summary states the cap next to the true population count.
+
+     2. The true count comes from a SEPARATE, UNCAPPED dataset (ds_churn_total)
+        running the identical predicate with no ranking. It cannot be derived
+        from the printed rows - those are 500 by construction - so a report
+        variable over the detail band would only ever report 500. The dataset
+        takes the same two parameters, so the disclosed figure always follows
+        whatever region and score date the reader chose. The sentence adapts:
+        it claims a cap only when the cap actually bites, says "All n" when the
+        filtered population fits inside 500, and says plainly that nothing
+        matched when the population is empty. "Top 500 of 0" would be false.
+
+     3. That dataset is rendered as a minimal crosstab. JasperReports' list and
+        table components are not registered on this JR7 classpath (the Jackson
+        loader rejects kind="list" outright), so a crosstab is the JR7-native
+        way to put a sub-dataset figure in a band. The row header is a spacer
+        and the sentence lives in the measure cell, so the block reads as one
+        captioned line rather than as a table.
+
+     4. The risk column is coloured by two overlapping textFields gated on
+        printWhenExpression rather than by a conditionalStyle, per the brief and
+        the Store P and L Statement precedent: Critical prints red and bold,
+        High prints in the standard body blue. The two expressions are exact
+        complements, so exactly one prints on every row.
+
+     5. Page geometry is 1000 x 700 rather than plain A4 landscape. Nine columns
+        including two free-text driver phrases (up to 26 characters each) and a
+        recommended action do not fit 782 printable points without truncation.
+
+     6. The summary KPI strip is explicitly labelled as covering the 500 listed
+        customers, not the whole population, so no figure on the page can be
+        misread as a total. Its three expressions coalesce null to zero, so the
+        no-rows page prints 0 rather than three captions over blank space.
+
+     7. whenNoDataType="AllSectionsNoDetail" - the reader chooses both a region
+        and a score date, so an out-of-coverage combination is reachable and
+        must render the branded page with its headers, not a blank sheet.
+
+     JR7-native throughout: <query language="SQL">, <element kind="...">,
+     <element kind="crosstab"> with <rowGroup>/<columnGroup>/<measure>/<cell>,
+     the sub-dataset as a top-level <dataset name="..."> driven by
+     <datasetRun>. -->
+<jasperReport name="rpt_churn_action_list" language="java" pageWidth="1000" pageHeight="700" orientation="Landscape" columnWidth="940" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" whenNoDataType="AllSectionsNoDetail">
+
+	<style name="chn_cell" fontSize="8.0" forecolor="#1F4E79"/>
+
+	<dataset name="ds_churn_total">
+		<parameter name="p_region" class="java.lang.String"/>
+		<parameter name="p_score_date" class="java.lang.String"/>
+		<query language="SQL"><![CDATA[
+SELECT INT4(COUNT(*)) AS scope_n
+FROM dash_churn
+WHERE score_date = DATE($P{p_score_date})
+  AND risk_band IN ('Critical', 'High')
+  AND recommended_action <> 'None'
+  AND ('All' = $P{p_region} OR region = $P{p_region})
+		]]></query>
+		<field name="scope_n" class="java.lang.Integer"/>
+	</dataset>
+
+	<parameter name="p_region" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_score_date" class="java.lang.String">
+		<defaultValueExpression><![CDATA["2020-12-31"]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT FIRST 500 customer_id, region, storenumber, risk_band,
+       DECIMAL(expected_ltv_at_risk, 12, 2) AS ltv_at_risk,
+       DECIMAL(churn_probability, 6, 4) AS churn_probability,
+       driver_1, driver_2,
+       recommended_action,
+       expected_next_purchase
+FROM dash_churn
+WHERE score_date = DATE($P{p_score_date})
+  AND risk_band IN ('Critical', 'High')
+  AND recommended_action <> 'None'
+  AND ('All' = $P{p_region} OR region = $P{p_region})
+ORDER BY expected_ltv_at_risk DESC, customer_id
+	]]></query>
+
+	<field name="customer_id" class="java.lang.String"/>
+	<field name="region" class="java.lang.String"/>
+	<field name="storenumber" class="java.lang.Integer"/>
+	<field name="risk_band" class="java.lang.String"/>
+	<field name="ltv_at_risk" class="java.math.BigDecimal"/>
+	<field name="churn_probability" class="java.math.BigDecimal"/>
+	<field name="driver_1" class="java.lang.String"/>
+	<field name="driver_2" class="java.lang.String"/>
+	<field name="recommended_action" class="java.lang.String"/>
+	<field name="expected_next_purchase" class="java.sql.Date"/>
+
+	<variable name="rpt_ltv" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{ltv_at_risk} == null ? java.math.BigDecimal.ZERO : $F{ltv_at_risk}]]></expression>
+	</variable>
+	<variable name="rpt_critical_n" class="java.lang.Integer" calculation="Sum">
+		<expression><![CDATA["Critical".equals($F{risk_band}) ? Integer.valueOf(1) : Integer.valueOf(0)]]></expression>
+	</variable>
+	<variable name="rpt_high_n" class="java.lang.Integer" calculation="Sum">
+		<expression><![CDATA["High".equals($F{risk_band}) ? Integer.valueOf(1) : Integer.valueOf(0)]]></expression>
+	</variable>
+
+	<title height="56">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="940" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Churn Action List]]></text></element>
+		<element kind="textField" x="0" y="26" width="940" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA[("All".equals($P{p_region}) ? "All regions" : $P{p_region})
++ ", score date " + $P{p_score_date}
++ ". Customers scored High or Critical with a recommended retention action, ranked by lifetime value at risk in CAD."]]></expression>
+		</element>
+		<element kind="line" x="0" y="50" width="940" height="1" forecolor="#D6E0EF"/>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="940" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="4" y="0" width="64" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Customer]]></text></element>
+		<element kind="staticText" x="72" y="0" width="44" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Store]]></text></element>
+		<element kind="staticText" x="120" y="0" width="66" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Region]]></text></element>
+		<element kind="staticText" x="190" y="0" width="54" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Risk]]></text></element>
+		<element kind="staticText" x="248" y="0" width="90" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[LTV at Risk]]></text></element>
+		<element kind="staticText" x="342" y="0" width="70" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Churn Prob.]]></text></element>
+		<element kind="staticText" x="416" y="0" width="140" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Top Driver]]></text></element>
+		<element kind="staticText" x="560" y="0" width="140" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Second Driver]]></text></element>
+		<element kind="staticText" x="704" y="0" width="116" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Recommended Action]]></text></element>
+		<element kind="staticText" x="824" y="0" width="112" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Expected Next Purchase]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="16">
+			<element kind="rectangle" x="0" y="0" width="940" height="16" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="chn_cell" x="4" y="0" width="64" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{customer_id}]]></expression>
+			</element>
+			<element kind="textField" style="chn_cell" x="72" y="0" width="44" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{storenumber}]]></expression>
+			</element>
+			<element kind="textField" style="chn_cell" x="120" y="0" width="66" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{region}]]></expression>
+			</element>
+
+			<element kind="textField" x="190" y="0" width="54" height="16" fontSize="8.0" bold="true" forecolor="#D9534F" vTextAlign="Middle">
+				<expression><![CDATA[$F{risk_band}]]></expression>
+				<printWhenExpression><![CDATA["Critical".equals($F{risk_band})]]></printWhenExpression>
+			</element>
+			<element kind="textField" x="190" y="0" width="54" height="16" fontSize="8.0" forecolor="#1F4E79" vTextAlign="Middle">
+				<expression><![CDATA[$F{risk_band}]]></expression>
+				<printWhenExpression><![CDATA[!"Critical".equals($F{risk_band})]]></printWhenExpression>
+			</element>
+
+			<element kind="textField" style="chn_cell" x="248" y="0" width="90" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{ltv_at_risk}]]></expression>
+			</element>
+			<element kind="textField" style="chn_cell" x="342" y="0" width="70" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="#0.0%" blankWhenNull="true">
+				<expression><![CDATA[$F{churn_probability}]]></expression>
+			</element>
+			<element kind="textField" style="chn_cell" x="416" y="0" width="140" height="16" vTextAlign="Middle" blankWhenNull="true">
+				<expression><![CDATA[$F{driver_1}]]></expression>
+			</element>
+			<element kind="textField" style="chn_cell" x="560" y="0" width="140" height="16" vTextAlign="Middle" blankWhenNull="true">
+				<expression><![CDATA[$F{driver_2}]]></expression>
+			</element>
+			<element kind="textField" style="chn_cell" x="704" y="0" width="116" height="16" vTextAlign="Middle" blankWhenNull="true">
+				<expression><![CDATA[$F{recommended_action}]]></expression>
+			</element>
+			<element kind="textField" style="chn_cell" x="824" y="0" width="112" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="yyyy-MM-dd" blankWhenNull="true">
+				<expression><![CDATA[$F{expected_next_purchase}]]></expression>
+			</element>
+		</band>
+	</detail>
+
+	<pageFooter height="18">
+		<element kind="line" x="0" y="0" width="940" height="1" forecolor="#D6E0EF"/>
+		<element kind="textField" x="0" y="4" width="620" height="12" fontSize="8.0" forecolor="#5B7DA6">
+			<expression><![CDATA["Churn Action List -- lifetime value at risk in CAD, highest first. List capped at 500 customers."]]></expression>
+		</element>
+		<element kind="textField" x="758" y="4" width="130" height="12" fontSize="8.0" forecolor="#5B7DA6" hTextAlign="Right">
+			<expression><![CDATA["Page " + $V{PAGE_NUMBER} + " of"]]></expression>
+		</element>
+		<element kind="textField" x="890" y="4" width="50" height="12" fontSize="8.0" forecolor="#5B7DA6" evaluationTime="Report">
+			<expression><![CDATA[" " + $V{PAGE_NUMBER}]]></expression>
+		</element>
+	</pageFooter>
+
+	<summary height="180">
+		<element kind="line" x="0" y="4" width="940" height="1" forecolor="#D6E0EF"/>
+
+		<element kind="staticText" x="0" y="10" width="940" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Totals across the customers listed above only -- not across the full at-risk population]]></text></element>
+
+		<element kind="staticText" x="0" y="30" width="313" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Lifetime value at risk]]></text></element>
+		<element kind="staticText" x="314" y="30" width="313" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Critical]]></text></element>
+		<element kind="staticText" x="628" y="30" width="312" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[High]]></text></element>
+
+		<element kind="textField" x="0" y="52" width="313" height="36" fontSize="26.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_ltv} == null ? java.math.BigDecimal.ZERO : $V{rpt_ltv}]]></expression>
+		</element>
+		<element kind="textField" x="314" y="52" width="313" height="36" fontSize="26.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_critical_n} == null ? Integer.valueOf(0) : $V{rpt_critical_n}]]></expression>
+		</element>
+		<element kind="textField" x="628" y="52" width="312" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_high_n} == null ? Integer.valueOf(0) : $V{rpt_high_n}]]></expression>
+		</element>
+
+		<element kind="line" x="0" y="96" width="940" height="1" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="0" y="102" width="940" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[How much of the at-risk population this list covers, for the region and score date selected]]></text></element>
+
+		<element kind="crosstab" x="166" y="122" width="608" height="44">
+			<dataset>
+				<datasetRun subDataset="ds_churn_total">
+					<parameter name="p_region"><expression><![CDATA[$P{p_region}]]></expression></parameter>
+					<parameter name="p_score_date"><expression><![CDATA[$P{p_score_date}]]></expression></parameter>
+				</datasetRun>
+			</dataset>
+			<rowGroup name="cov_row" totalPosition="None" width="8">
+				<bucket class="java.lang.String"><expression><![CDATA[""]]></expression></bucket>
+				<header>
+					<element kind="staticText" x="0" y="0" width="8" height="20" mode="Transparent"><text><![CDATA[ ]]></text></element>
+				</header>
+			</rowGroup>
+			<columnGroup name="cov_col" totalPosition="None" height="20">
+				<bucket class="java.lang.String"><expression><![CDATA[""]]></expression></bucket>
+				<header>
+					<element kind="staticText" x="0" y="0" width="600" height="20" fontSize="9.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" mode="Opaque" backcolor="#1F4E79"><text><![CDATA[Coverage of this action list]]></text></element>
+				</header>
+			</columnGroup>
+			<measure name="cov_n" calculation="Sum" class="java.lang.Integer">
+				<expression><![CDATA[$F{scope_n}]]></expression>
+			</measure>
+			<cell width="600" height="20">
+				<contents mode="Transparent">
+					<element kind="textField" x="0" y="0" width="600" height="20" fontSize="10.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle">
+						<expression><![CDATA[($V{cov_n} == null || $V{cov_n}.intValue() == 0)
+  ? "No High or Critical customers carry a recommended action for these filters"
+  : ($V{cov_n}.intValue() <= 500
+      ? "All " + new java.text.DecimalFormat("#,##0").format($V{cov_n}) + " High and Critical customers by LTV at risk"
+      : "Top 500 of " + new java.text.DecimalFormat("#,##0").format($V{cov_n}) + " High and Critical customers by LTV at risk")]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+		</element>
+	</summary>
+
+</jasperReport>

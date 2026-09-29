@@ -3,8 +3,34 @@
   "$id": "https://jasper-deploy/references/manifest.schema.json",
   "title": "jasper-deploy dashboard build manifest",
   "description": "The unified manifest consumed by build_dashlets.ps1 / gen_dashboard.py. It carries BOTH the report-build spec (db/datasource/queries) AND the dashboard grid layout (x/y/width/height per tile). For each report dashlet build_dashlets.ps1 scaffolds -> compiles -> deploys -> verifies, then (-Compose) gen_dashboard.py synthesizes the dashboard descriptor + companion files. A real example lives at report/foodmart/dashboard.json.",
+  "$defs": {
+    "controlList": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "Control (= report parameter) name; also the leaf of its repository URI." },
+          "label": { "type": "string", "description": "Prompt label. Default: name." },
+          "type": { "type": "integer", "enum": [1, 2, 3, 4, 5, 6, 7], "description": "JRS inputControl type code: 1 boolean, 2 single value, 3 single-select LOV, 4 single-select query, 5 multi value, 6 multi-select LOV, 7 multi-select query. Alternative: 'kind'." },
+          "kind": { "type": "string", "enum": ["bool", "single", "lov", "multilov", "query", "multiquery"], "description": "Readable alias for 'type'." },
+          "values": { "type": "array", "items": { "anyOf": [ { "type": "string" }, { "type": "object", "required": ["label", "value"] } ] }, "description": "LOV kinds (3/6): 'label=value' strings or {label,value} objects; a bare string is both label and value." },
+          "query": { "type": "string", "description": "Query kinds (4/7): SQL SELECT the control runs on dataSourceUri (may reference $P{parent} for cascades)." },
+          "valueColumn": { "type": "string", "description": "Query kinds: column supplying the parameter value." },
+          "visibleColumns": { "type": "array", "items": { "type": "string" }, "description": "Query kinds: columns shown in the prompt. Default [valueColumn]." },
+          "labelColumn": { "type": "string", "description": "Query kinds: shorthand for visibleColumns [labelColumn]." },
+          "dataType": { "type": "string", "enum": ["text", "number", "date", "datetime"], "default": "text", "description": "Value kinds (2/5): the dataType sub-resource type." },
+          "dataSourceUri": { "type": "string", "pattern": "^/", "description": "Per-control datasource override." },
+          "folder": { "type": "string", "pattern": "^/", "description": "Per-control folder override." },
+          "mandatory": { "type": "boolean", "default": false },
+          "readOnly": { "type": "boolean", "default": false },
+          "visible": { "type": "boolean", "default": true }
+        }
+      }
+    }
+  },
   "type": "object",
-  "required": ["dataSourceUri", "folder", "name", "dashlets"],
+  "required": ["folder", "name", "dashlets"],
   "additionalProperties": true,
   "properties": {
     "db": {
@@ -40,6 +66,78 @@
     "label": {
       "type": "string",
       "description": "Human-readable dashboard label. The component id is derived from this via re.sub('[^0-9A-Za-z]','_', label), so keep labels unique across tiles."
+    },
+    "autoRefresh": {
+      "type": "boolean",
+      "default": false,
+      "description": "Dashboard-level auto-refresh toggle (dashboardProperties.autoRefresh). Default false."
+    },
+    "showExportButton": {
+      "type": "boolean",
+      "default": false,
+      "description": "Show the dashboard Export button (dashboardProperties.showExportButton). Default false."
+    },
+    "showPrintButton": {
+      "type": "boolean",
+      "default": false,
+      "description": "Show the dashboard Print button (dashboardProperties.showPrintButton). Default false."
+    },
+    "filterButtonsPosition": {
+      "type": "string",
+      "enum": ["bottom", "right"],
+      "default": "bottom",
+      "description": "Where the filter strip's Apply/Reset buttons sit (filterGroup.buttonsPosition). Only used when 'filters' is set."
+    },
+    "filterFloating": {
+      "type": "boolean",
+      "default": false,
+      "description": "Float the filter strip instead of docking it (filterGroup.floating). Only used when 'filters' is set."
+    },
+    "filterStripHeight": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3,
+      "description": "Height (grid rows) of the dashboard-level filter strip. Every tile's y is offset by it. Synced back from the live layout by sync_manifest.py. Only used when 'filters' is set."
+    },
+    "filters": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Dashboard-level filter strip: one inputControl component per control NAME (resolved under filterControlFolder), wired to every report tile. The controls must exist on the server -- declare them in 'controls' (ensure_controls.ps1 / promote -EnsureControls creates them)."
+    },
+    "filterControlFolder": {
+      "type": "string",
+      "pattern": "^/",
+      "description": "Repository folder holding the filter controls. Default <folder>/controls."
+    },
+    "filterOwner": {
+      "type": "string",
+      "pattern": "^/",
+      "description": "Report unit that declares the filter parameters (ownerResourceId). Default: the first report dashlet."
+    },
+    "dashletFilterShowPopup": {
+      "type": "boolean",
+      "default": false,
+      "description": "Per-dashlet filter popups (dashboardProperties.dashletFilterShowPopup)."
+    },
+    "controls": {
+      "description": "Input controls this dashboard needs (declarative spec consumed by ensure_controls.ps1, compose_dashboard.ps1 -EnsureControls and promote.ps1 -EnsureControls). Either an object { folder, dataSourceUri, controls:[...] } or a bare array of control objects (folder then defaults to filterControlFolder / <folder>/controls, datasource to the manifest dataSourceUri). Idempotent: GET first, create only when absent. Example: fixtures/controls.example.json.",
+      "oneOf": [
+        { "$ref": "#/$defs/controlList" },
+        {
+          "type": "object",
+          "required": ["controls"],
+          "properties": {
+            "folder": { "type": "string", "pattern": "^/", "description": "Repository folder the controls (and their _lov/_query/_dt sub-resources) are created in." },
+            "dataSourceUri": { "type": "string", "pattern": "^/", "description": "Datasource the query controls run against." },
+            "controls": { "$ref": "#/$defs/controlList" }
+          }
+        }
+      ]
+    },
+    "canvasColor": {
+      "type": "string",
+      "description": "Background colour of the dashboard canvas (the gutters between tiles), written to DashboardProperties.canvasColor. Default #ffffff. Set it to the tiles' own page background (e.g. #000032 for the navy POS boards) so the gutters do not read as white seams.",
+      "default": "#ffffff"
     },
     "outDir": {
       "type": "string",
@@ -90,6 +188,31 @@
           "name": {
             "type": "string",
             "description": "Tile name. For a report tile this is the leaf resource name (scaffolded + deployed under 'folder'). For text/image it is the component name only."
+          },
+          "scaleToFit": {
+            "type": "string",
+            "enum": ["width", "height", "container"],
+            "default": "width",
+            "description": "Report tile scaling (reportUnit.scaleToFit). Default width; 'container' matches a designer-set 'Scale to fit: container'."
+          },
+          "showTitleBar": {
+            "type": "boolean",
+            "default": true,
+            "description": "Report tile title bar (reportUnit.showTitleBar). Synced from the live dashboard by sync_manifest.py."
+          },
+          "resource": {
+            "type": "string",
+            "pattern": "^/",
+            "description": "Compose-only manifests: repository URI of an already-deployed report tile (instead of 'name' + build spec)."
+          },
+          "jrxml": {
+            "type": "string",
+            "description": "Local jrxml for this tile (relative to the manifest). promote.ps1 -Manifest deploys it with deploy_report.ps1 -Overwrite; when absent the tile is looked up in outDir, then beside the manifest, else export+imported from the source server."
+          },
+          "controls": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Input controls to attach to this report unit after a (re)deploy: control names (resolved under filterControlFolder) or full URIs. Omit to inherit whatever the SOURCE report unit has attached (promote.ps1)."
           },
           "x": {
             "type": "integer",

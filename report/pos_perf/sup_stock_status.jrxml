@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Supply and Inventory console: stock status mix by category as a 100 percent
+     stacked bar. Every bar sums to 100, so a category holding two thousand
+     items reads next to one holding three hundred without the larger one
+     swamping the tile.
+
+     WHY THE SHARE IS COMPUTED IN SQL. JasperReports has no "percent stacked"
+     chart type; chartType="stackedBar" stacks whatever values it is handed. The
+     100 percent behaviour therefore has to come from the query, exactly as
+     trs_tender_mix.jrxml and ops_promo_panel.jrxml do it: a correlated per
+     category total that carries the SAME four filter predicates as the outer
+     query, so each bar still sums to 100 whatever the strip selects. This is a
+     deliberate extension of the task brief's count only sketch; a raw
+     COUNT(*) stack would have made the tile a category size chart rather than
+     the stock status mix it is titled as.
+
+     UNCATEGORIZED ITEMS ARE KEPT, NOT DROPPED. About seventy percent of the
+     tracked items carry no category of their own. A null category key is
+     rejected outright by the underlying category dataset, and silently
+     discarding that many items would misstate the network, so the key is
+     coalesced to "Uncategorized" on both sides of the share calculation and the
+     bar is shown alongside the named categories. Because each bar is normalised
+     to 100 percent, its size does not distort the tile.
+
+     SERIES REGISTRATION ORDER. seriesColor order="n" binds by the order in
+     which the chart dataset first SEES each series, not by series name, so the
+     query pins that order with a CASE rank in the ORDER BY (In Stock, Reorder,
+     Overstock, Critical, Out of Stock) rather than leaving it to the engine's
+     row order. The colours then follow favourable to unfavourable: In Stock
+     #5CB85C, Reorder #0550DC, Overstock #1DB6C0, Critical #E8908D, Out of Stock
+     #D9534F. The first category alphabetically carries all five statuses, so
+     all five register on the first bar.
+
+     CRITICAL IS A LIGHTER RED THAN OUT OF STOCK, ON PURPOSE. The task brief
+     asked for Critical to be "one shade lighter than pure unfavourable" and
+     then wrote the pure unfavourable hex for BOTH statuses. Two adjacent
+     segments of one stack painted the same colour cannot be told apart, which
+     is precisely the pair a reader most needs to separate here, so Critical
+     takes #E8908D, a lighter tint of the unfavourable #D9534F that keeps the
+     red reading while leaving Out of Stock the strongest note on the bar. This
+     is the brief's stated intent; the repeated hex was a transcription slip.
+
+     No null guard is needed on the value expression here, unlike a single
+     series chart with a nullable value column: a (category, stock status)
+     combination with no items is simply ABSENT from the result set, it does not
+     arrive as a row carrying a null, so there is no null first value that could
+     fail to register a series. Chart is in the title band, so
+     evaluationTime="Report".
+
+     The filter contract, the parameter naming, and the reason store numbers are
+     compared as text are documented at length in sup_kpi.jrxml. -->
+<jasperReport name="sup_stock_status" language="java" pageWidth="1000" pageHeight="380" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="sup_store" class="java.util.Collection"/>
+	<parameter name="sup_category" class="java.util.Collection"/>
+	<parameter name="sup_supplier" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT COALESCE(o.category, 'Uncategorized') AS category,
+       o.stock_status,
+       DECIMAL(100.0 * FLOAT8(COUNT(*)) / FLOAT8(NULLIF((SELECT COUNT(*) FROM inventory i
+              WHERE COALESCE(i.category, 'Uncategorized') = COALESCE(o.category, 'Uncategorized')
+                AND ($X{IN, i.storeregion, p_regions})
+                AND ($X{IN, VARCHAR(i.storenumber), sup_store})
+                AND ($X{IN, i.category, sup_category})
+                AND ($X{IN, i.supplier_name, sup_supplier})), 0)), 6, 2) AS share_pct
+FROM inventory o
+WHERE ($X{IN, o.storeregion, p_regions})
+  AND ($X{IN, VARCHAR(o.storenumber), sup_store})
+  AND ($X{IN, o.category, sup_category})
+  AND ($X{IN, o.supplier_name, sup_supplier})
+GROUP BY COALESCE(o.category, 'Uncategorized'), o.stock_status
+ORDER BY 1, CASE o.stock_status WHEN 'In Stock' THEN 1 WHEN 'Reorder' THEN 2 WHEN 'Overstock' THEN 3 WHEN 'Critical' THEN 4 ELSE 5 END
+	]]></query>
+
+	<field name="category" class="java.lang.String"/>
+	<field name="stock_status" class="java.lang.String"/>
+	<field name="share_pct" class="java.math.BigDecimal"/>
+
+	<title height="360">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="980" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Stock Status by Category]]></text></element>
+		<element kind="staticText" x="0" y="26" width="980" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Share of tracked items in each stock position. Every bar sums to 100 percent.]]></text></element>
+
+		<element kind="chart" chartType="stackedBar" x="0" y="48" width="980" height="312" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA[$F{stock_status}]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{category}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{share_pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" categoryAxisTickLabelRotation="-45">
+				<seriesColor order="0" color="#5CB85C"/>
+				<seriesColor order="1" color="#0550DC"/>
+				<seriesColor order="2" color="#1DB6C0"/>
+				<seriesColor order="3" color="#E8908D"/>
+				<seriesColor order="4" color="#D9534F"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

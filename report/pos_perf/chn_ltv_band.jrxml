@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Retention and Churn console: expected lifetime value at risk, summed by
+     risk band, in the same worst first order as the sibling count tile so the
+     two read as a pair. Reading them side by side is the point: High holds far
+     more value than Critical even though Critical is the more urgent band.
+
+     This is a magnitude tile, not a favourable/unfavourable one, so the single
+     series takes the brand blue rather than the count tile's red. The value is
+     zero guarded because a SUM over a narrow filter can return null, and a null
+     on the first row would fail to register the series and shift the
+     seriesColor order bindings.
+
+     JR7 native bar plot, horizontal orientation, legend off, chart in the title
+     band so evaluationTime="Report". valueAxisTickLabelMask formats the money
+     axis; it is the JRCategoryPlot sibling of the categoryAxisTickLabelRotation
+     attribute the trs_liability tile already uses.
+
+     The filter contract, and why the parameters are named after the live input
+     controls rather than after the task brief's p_tiers/p_bands, is documented
+     at length in chn_kpi.jrxml. -->
+<jasperReport name="chn_ltv_band" language="java" pageWidth="600" pageHeight="420" columnWidth="580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="chn_score_date" class="java.util.Collection"/>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="chn_tier" class="java.util.Collection"/>
+	<parameter name="chn_band" class="java.util.Collection"/>
+	<parameter name="p_score_date" class="java.lang.String">
+		<defaultValueExpression><![CDATA[($P{chn_score_date} == null || $P{chn_score_date}.isEmpty()) ? "2020-12-31" : String.valueOf($P{chn_score_date}.iterator().next())]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT risk_band,
+       CASE risk_band WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Watch' THEN 3 ELSE 4 END AS band_order,
+       DECIMAL(SUM(expected_ltv_at_risk), 14, 2) AS ltv_at_risk
+FROM dash_churn
+WHERE score_date = DATE($P{p_score_date})
+  AND ($X{IN, region, p_regions})
+  AND ($X{IN, loyalty_tier, chn_tier})
+  AND ($X{IN, risk_band, chn_band})
+GROUP BY risk_band
+ORDER BY band_order
+	]]></query>
+
+	<field name="risk_band" class="java.lang.String"/>
+	<field name="band_order" class="java.lang.Integer"/>
+	<field name="ltv_at_risk" class="java.math.BigDecimal"/>
+
+	<title height="400">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="580" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[LTV at Risk by Band]]></text></element>
+		<element kind="textField" x="0" y="26" width="580" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA["Expected lifetime value in CAD. Score date " + $P{p_score_date}]]></expression></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="580" height="352" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["LTV at risk"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{risk_band} == null ? "Unclassified" : $F{risk_band}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{ltv_at_risk} == null ? java.math.BigDecimal.ZERO : $F{ltv_at_risk}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true" valueAxisTickLabelMask="$#,##0">
+				<seriesColor order="0" color="#0550DC"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Marketing and Digital cockpit: 5-up KPI chip strip. Layout pattern mirrors
+     chn_kpi.jrxml / sup_kpi.jrxml / trs_kpi.jrxml (divider lines at the cell
+     boundaries, 13pt label / 26pt value, centered, evaluationTime="Report" so
+     the single result row is available in the title band).
+
+     Cockpit archetype: no parameters, no filter strip. Every figure is a
+     lifetime network total across dash_email, dash_ecom_monthly, store_pnl_monthly
+     and promotions.
+
+     promo_roi is a RATIO (margin dollars per subsidy dollar), not a percent,
+     hence the 'x' suffix rather than '%'. Verified 2026-08-25: network
+     promo_roi is 84.91 - lifetime promo_margin $99,159,330.53 over lifetime
+     marketing_subsidy $1,167,803.60. An 'x' suffix reads as "85 dollars of
+     margin per dollar of subsidy" rather than implying a percentage.
+
+     Every chip null guards its value (blankWhenNull): a NULLIF(...,0) divisor
+     can legitimately produce a null ratio if a source table were ever empty. -->
+<jasperReport name="mkt_kpi" language="java" pageWidth="1600" pageHeight="130" columnWidth="1580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT DECIMAL(100.0 * FLOAT8((SELECT SUM(order_value) FROM dash_ecom_monthly)) / FLOAT8(NULLIF((SELECT SUM(net_sales) FROM store_pnl_monthly), 0)), 6, 2) AS ecom_share_pct,
+       DECIMAL(100.0 * FLOAT8((SELECT SUM(late_orders) FROM dash_ecom_monthly)) / FLOAT8(NULLIF((SELECT SUM(orders) FROM dash_ecom_monthly), 0)), 6, 2) AS late_pct,
+       DECIMAL(100.0 * FLOAT8((SELECT SUM(opened) FROM dash_email)) / FLOAT8(NULLIF((SELECT SUM(sent) FROM dash_email), 0)), 6, 2) AS open_pct,
+       DECIMAL(100.0 * FLOAT8((SELECT SUM(clicked) FROM dash_email)) / FLOAT8(NULLIF((SELECT SUM(sent) FROM dash_email), 0)), 6, 2) AS click_pct,
+       DECIMAL(FLOAT8((SELECT SUM(promo_margin) FROM promotions)) / FLOAT8(NULLIF((SELECT SUM(marketing_subsidy) FROM promotions), 0)), 8, 2) AS promo_roi
+FROM (SELECT 1 AS x) dual
+	]]></query>
+
+	<field name="ecom_share_pct" class="java.math.BigDecimal"/>
+	<field name="late_pct" class="java.math.BigDecimal"/>
+	<field name="open_pct" class="java.math.BigDecimal"/>
+	<field name="click_pct" class="java.math.BigDecimal"/>
+	<field name="promo_roi" class="java.math.BigDecimal"/>
+
+	<title height="110">
+		<element kind="staticText" x="10" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[E-Commerce Share]]></text></element>
+		<element kind="textField" x="10" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{ecom_share_pct}]]></expression></element>
+		<element kind="staticText" x="10" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[of net sales fulfilled online]]></text></element>
+
+		<element kind="line" x="316" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="326" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Late Fulfilment]]></text></element>
+		<element kind="textField" x="326" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{late_pct}]]></expression></element>
+		<element kind="staticText" x="326" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[of e-commerce orders delivered late]]></text></element>
+
+		<element kind="line" x="632" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="642" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Email Open Rate]]></text></element>
+		<element kind="textField" x="642" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{open_pct}]]></expression></element>
+		<element kind="staticText" x="642" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[of emails sent that were opened]]></text></element>
+
+		<element kind="line" x="948" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="958" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Email Click Rate]]></text></element>
+		<element kind="textField" x="958" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{click_pct}]]></expression></element>
+		<element kind="staticText" x="958" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[of emails sent that were clicked]]></text></element>
+
+		<element kind="line" x="1264" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="1274" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Promotion ROI]]></text></element>
+		<element kind="textField" x="1274" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.00'x'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{promo_roi}]]></expression></element>
+		<element kind="staticText" x="1274" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[margin dollars per subsidy dollar]]></text></element>
+
+		<element kind="staticText" x="10" y="88" width="1564" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Lifetime network totals across email, e-commerce and promotion history.]]></text></element>
+	</title>
+
+</jasperReport>

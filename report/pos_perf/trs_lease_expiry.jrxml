@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Franchise Treasury console: how many store leases fall due in each year.
+     Single-series bar with value labels; legend off. The expiry year is an
+     integer, so the category expression stringifies it - otherwise JFreeChart
+     would format the axis key as "2,024".
+     The store asset register carries no month column, so this tile takes only
+     the region and franchisee clauses (p_asof does not narrow it). The
+     subtitle is a static sentence with no p_asof reference, so it cannot
+     imply a cutoff the query does not apply. JR7-native bar plot; chart in
+     the title band -> evaluationTime="Report". -->
+<jasperReport name="trs_lease_expiry" language="java" pageWidth="600" pageHeight="420" columnWidth="580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_asof" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_franchisee" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT YEAR(lease_expiry) AS expiry_year, COUNT(*) AS stores
+FROM store_assets WHERE $X{IN, region, p_regions} AND $X{IN, franchisee_id, p_franchisee}
+GROUP BY YEAR(lease_expiry) ORDER BY 1
+	]]></query>
+
+	<field name="expiry_year" class="java.lang.Integer"/>
+	<field name="stores" class="java.lang.Long"/>
+
+	<title height="400">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="580" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Lease Expiries]]></text></element>
+		<element kind="staticText" x="0" y="26" width="580" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Stores whose lease falls due, by year. Lease register as of 2020-12-31; not narrowed by the invoice cutoff.]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="580" height="352" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Stores"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{expiry_year} == null ? "" : $F{expiry_year}.toString()]]></categoryExpression>
+					<valueExpression><![CDATA[$F{stores}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" showLabels="true">
+				<seriesColor order="0" color="#0550DC"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Retention and Churn console: the strongest single churn driver behind each
+     customer in the Critical band, counted and ranked.
+
+     THE RISK BAND FILTER IS DELIBERATELY NOT APPLIED HERE. This tile is pinned
+     to risk_band = 'Critical' in its own WHERE clause and ignores the console's
+     chn_band selection on purpose: the tile answers one fixed question, "what is
+     driving the customers we are about to lose", and its own title says
+     "(Critical)". Widening it with the band control would turn a specific answer
+     into a general driver browser whose title no longer matched its contents, and
+     would silently change what the reader thinks they are looking at. This is not
+     an oversight; do not "fix" it by adding $X{IN, risk_band, chn_band}. The
+     region and loyalty tier controls DO apply, because narrowing the population
+     does not change the question being asked. The subtitle states the pinning so
+     the reader is never misled by an unrelated band selection in the strip.
+
+     driver_1 is nullable (exactly one Critical customer at the default score
+     date carries no driver), and a null category key is rejected outright by the
+     underlying category dataset, so the category expression coalesces null to
+     "Unclassified". The count is zero guarded as well, per the console rule about
+     first row nulls failing to register a series.
+
+     JR7 native bar plot, horizontal orientation, legend off, chart in the title
+     band so evaluationTime="Report".
+
+     The filter contract, and why the parameters are named after the live input
+     controls rather than after the task brief's p_tiers/p_bands, is documented
+     at length in chn_kpi.jrxml. -->
+<jasperReport name="chn_drivers" language="java" pageWidth="600" pageHeight="420" columnWidth="580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="chn_score_date" class="java.util.Collection"/>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="chn_tier" class="java.util.Collection"/>
+	<parameter name="chn_band" class="java.util.Collection"/>
+	<parameter name="p_score_date" class="java.lang.String">
+		<defaultValueExpression><![CDATA[($P{chn_score_date} == null || $P{chn_score_date}.isEmpty()) ? "2020-12-31" : String.valueOf($P{chn_score_date}.iterator().next())]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT driver_1,
+       COUNT(*) AS n
+FROM dash_churn
+WHERE score_date = DATE($P{p_score_date})
+  AND risk_band = 'Critical'
+  AND ($X{IN, region, p_regions})
+  AND ($X{IN, loyalty_tier, chn_tier})
+GROUP BY driver_1
+ORDER BY n DESC
+	]]></query>
+
+	<field name="driver_1" class="java.lang.String"/>
+	<field name="n" class="java.lang.Long"/>
+
+	<title height="400">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="580" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Top Churn Drivers (Critical)]]></text></element>
+		<element kind="staticText" x="0" y="26" width="580" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Among customers in the Critical band, regardless of the risk band filter]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="580" height="352" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Customers"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{driver_1} == null ? "Unclassified" : $F{driver_1}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{n} == null ? Long.valueOf(0) : $F{n}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true">
+				<seriesColor order="0" color="#0A4CAD"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Store P and L Statement: the paginated drill target behind the worst-stores
+     list on the Store Profit and Budget cockpit. One store, one month, actual
+     against a chosen budget version, in statement order.
+
+     PARAMETER TYPES - p_store is java.lang.Integer, NOT String. The calling tile
+     (pnl_worst_stores.jrxml) passes $F{storenumber}, an Integer field, through a
+     ReportExecution hyperlinkParameter, so a String parameter would fail the drill
+     on a type mismatch. The store column is compared directly rather than through
+     INT4(...). p_yyyymm and p_version stay String because the shared input controls
+     feed them string values.
+
+     DEVIATIONS from the task brief, all verified in the warehouse first:
+
+     1. Line 8 is a residual, not a subtraction of named cost columns. Four-wall
+        EBITDA is gross margin less total store opex PLUS promotional subsidy
+        income, and the budget-vs-actual source carries no subsidy column. Deriving
+        line 8 as (EBITDA - gross margin + labour + occupancy + utilities +
+        shrinkage) makes the statement foot to the cent on both the actual and the
+        budget side; the brief's literal formula left the subsidy out and missed
+        four-wall EBITDA by that amount (2,167.20 for the default store/month).
+        The line is therefore labelled "net of subsidy".
+
+     2. Variance percent divides by ABS(budget), not budget. Cost lines are carried
+        negative, so dividing by the signed budget flipped the percent's sign
+        against the variance amount on every cost line - a favourable 928.80 on
+        labour read as +9.0 percent only by accident of two negatives. With the
+        absolute denominator, positive always means favourable on every line, which
+        is what the brief's own note ("the variance sign is always
+        favourable-positive") asks for, and it lets one sign test colour both the
+        amount and the percent. The percent is left as the raw FLOAT8 quotient
+        (field class java.lang.Double) and NOT re-cast to DECIMAL(..., 8, 1):
+        that cast TRUNCATES the scale rather than rounding, so every displayed
+        tenth could read 0.1pp low (labour 9.065 printed 9.0, shrinkage -41.59
+        printed -41.5). The pattern="#,##0.0'%'" does the rounding at render
+        time instead.
+
+     3. The inline per-row variance bar is a summary-band chart. JR7 has no
+        expression-driven element width, so a per-row rectangle cannot be scaled;
+        the plan already documents this deviation. The bar chart carries all eleven
+        lines with the favourable/unfavourable sign split used on the cockpit.
+
+     4. Chart sizes differ from the brief's 500x160 and 300x260: 500 + 300 exceeds
+        the 782px column width of an A4 landscape page at 30px margins, so the pair
+        is laid out 430 + 340 at a common height.
+
+     5. The regional rank chip is suppressed when the store has no four-wall
+        margin for the month. The brief's rank counts stores strictly better than
+        this one, and a NULL margin (a store with no sales that month, which is
+        exactly what the worst-stores drill often lands on) loses every comparison,
+        so the store would be announced as rank #1 in its region. The chip is
+        replaced with a plain "no sales recorded" sentence in that case.
+
+     6. The variance bar's two sign series return a zero, not null, for a
+        non-matching sign. A null is NOT registered in the category dataset, so the
+        series that happens to carry the FIRST row's value is registered first and
+        takes seriesColor order="0". With a null, the colours therefore invert
+        whenever net sales misses budget: rendering store 531 for 2020-12 put every
+        unfavourable line in favourable blue. A zero registers both series at the
+        first category in declaration order, pins order 0 to Favourable, and draws
+        a zero-length (invisible) bar, so nothing changes visually. Verified by
+        re-rendering both a favourable-first and an unfavourable-first store.
+        The same latent inversion exists in pnl_variance_region.jrxml and
+        pnl_waterfall.jrxml, which use the null form.
+
+     7. The variance-percent cells are blankWhenNull. A zero budget line divides
+        by NULLIF(...) and yields NULL, which otherwise prints the literal text
+        "null" - seen on a store whose whole month was budgeted at zero.
+
+     8. The twelve-month strip uses yyyymm BETWEEN p_yyyymm - 99 AND p_yyyymm.
+        The brief's -100 spans thirteen months (the prior December through the
+        chosen month); -99 yields exactly the twelve points the acceptance check
+        asks for, for any month of the year.
+
+     JR7-native throughout: <query language="SQL">, <element kind="...">,
+     <dataset kind="category">, repeated <seriesColor order="n"/>, sub-dataset as a
+     top-level <dataset name="..."> driven by <datasetRun subDataset="...">.
+     Conditional bold on total lines is a <conditionalStyle>; the variance colour
+     is two overlapping textFields with printWhenExpression, per the brief. The
+     charts sit in the summary band, which fills after the last record, so no
+     evaluationTime override is needed there - the subtitle does need
+     evaluationTime="Report" because it reads a field from the title band. -->
+<jasperReport name="rpt_store_pnl_statement" language="java" pageWidth="842" pageHeight="595" orientation="Landscape" columnWidth="782" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" whenNoDataType="AllSectionsNoDetail">
+
+	<style name="stmt_label" fontSize="10.0" forecolor="#1F4E79">
+		<conditionalStyle bold="true">
+			<conditionExpression><![CDATA[$F{is_total} != null && $F{is_total}.intValue() == 1]]></conditionExpression>
+		</conditionalStyle>
+	</style>
+	<style name="stmt_amount" fontSize="10.0" forecolor="#1F4E79">
+		<conditionalStyle bold="true">
+			<conditionExpression><![CDATA[$F{is_total} != null && $F{is_total}.intValue() == 1]]></conditionExpression>
+		</conditionalStyle>
+	</style>
+
+	<dataset name="ds_ebitda_trend">
+		<parameter name="p_store" class="java.lang.Integer"/>
+		<parameter name="p_yyyymm" class="java.lang.String"/>
+		<query language="SQL"><![CDATA[
+SELECT yyyymm, CAST(yyyymm AS VARCHAR(6)) AS ym, DECIMAL(four_wall_ebitda, 14, 2) AS four_wall_ebitda
+FROM store_pnl_monthly
+WHERE storenumber = $P{p_store} AND yyyymm BETWEEN INT4($P{p_yyyymm}) - 99 AND INT4($P{p_yyyymm})
+ORDER BY yyyymm
+		]]></query>
+		<field name="yyyymm" class="java.lang.Integer"/>
+		<field name="ym" class="java.lang.String"/>
+		<field name="four_wall_ebitda" class="java.math.BigDecimal"/>
+	</dataset>
+
+	<parameter name="p_store" class="java.lang.Integer"><defaultValueExpression><![CDATA[Integer.valueOf(2)]]></defaultValueExpression></parameter>
+	<parameter name="p_yyyymm" class="java.lang.String"><defaultValueExpression><![CDATA["202012"]]></defaultValueExpression></parameter>
+	<parameter name="p_version" class="java.lang.String"><defaultValueExpression><![CDATA["Original"]]></defaultValueExpression></parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT s.line_order, s.line_label,
+       DECIMAL(s.actual_amt, 14, 2) AS actual_amt,
+       DECIMAL(s.budget_amt, 14, 2) AS budget_amt,
+       DECIMAL(s.actual_amt - s.budget_amt, 14, 2) AS variance_amt,
+       100.0 * FLOAT8(s.actual_amt - s.budget_amt) / FLOAT8(NULLIF(ABS(s.budget_amt), 0)) AS variance_pct,
+       s.is_total,
+       (SELECT storename FROM stores WHERE storenumber = $P{p_store}) AS storename,
+       (SELECT region FROM stores WHERE storenumber = $P{p_store}) AS region,
+       (SELECT INT4(COUNT(*) + 1) FROM store_pnl_monthly q WHERE q.yyyymm = INT4($P{p_yyyymm}) AND q.region = (SELECT region FROM stores WHERE storenumber = $P{p_store}) AND q.four_wall_margin_pct > (SELECT four_wall_margin_pct FROM store_pnl_monthly r WHERE r.storenumber = $P{p_store} AND r.yyyymm = INT4($P{p_yyyymm}))) AS region_rank,
+       (SELECT INT4(COUNT(*)) FROM store_pnl_monthly n WHERE n.yyyymm = INT4($P{p_yyyymm}) AND n.region = (SELECT region FROM stores WHERE storenumber = $P{p_store})) AS region_n,
+       (SELECT DECIMAL(m.four_wall_margin_pct, 8, 2) FROM store_pnl_monthly m WHERE m.storenumber = $P{p_store} AND m.yyyymm = INT4($P{p_yyyymm})) AS own_margin_pct
+FROM (
+  SELECT 1 AS line_order, CAST('Net sales' AS VARCHAR(40)) AS line_label, actual_net_sales AS actual_amt, budget_net_sales AS budget_amt, 0 AS is_total FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 2, 'Cost of goods sold', -(actual_net_sales - actual_gross_margin), -(budget_net_sales - budget_gross_margin), 0 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 3, 'Gross margin', actual_gross_margin, budget_gross_margin, 1 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 4, 'Labour (loaded)', -actual_labour_cost, -budget_labour_cost, 0 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 5, 'Occupancy', -actual_occupancy_cost, -budget_occupancy_cost, 0 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 6, 'Utilities', -actual_utilities_cost, -budget_utilities_cost, 0 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 7, 'Shrinkage', -actual_shrinkage_cost, -budget_shrinkage_cost, 0 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 8, 'Other store opex (net of subsidy)', actual_four_wall_ebitda - actual_gross_margin + actual_labour_cost + actual_occupancy_cost + actual_utilities_cost + actual_shrinkage_cost, budget_four_wall_ebitda - budget_gross_margin + budget_labour_cost + budget_occupancy_cost + budget_utilities_cost + budget_shrinkage_cost, 0 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 9, 'Four-wall EBITDA', actual_four_wall_ebitda, budget_four_wall_ebitda, 1 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 10, 'Franchise fees', -actual_franchise_fees, -budget_franchise_fees, 0 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+  UNION ALL SELECT 11, 'Store contribution', actual_store_contribution, budget_store_contribution, 1 FROM store_budget_vs_actual WHERE storenumber = $P{p_store} AND yyyymm = INT4($P{p_yyyymm}) AND budget_version = $P{p_version}
+) s ORDER BY s.line_order
+	]]></query>
+
+	<field name="line_order" class="java.lang.Integer"/>
+	<field name="line_label" class="java.lang.String"/>
+	<field name="actual_amt" class="java.math.BigDecimal"/>
+	<field name="budget_amt" class="java.math.BigDecimal"/>
+	<field name="variance_amt" class="java.math.BigDecimal"/>
+	<field name="variance_pct" class="java.lang.Double"/>
+	<field name="is_total" class="java.lang.Integer"/>
+	<field name="storename" class="java.lang.String"/>
+	<field name="region" class="java.lang.String"/>
+	<field name="region_rank" class="java.lang.Integer"/>
+	<field name="region_n" class="java.lang.Integer"/>
+	<field name="own_margin_pct" class="java.math.BigDecimal"/>
+
+	<title height="56">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="782" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Store P and L Statement]]></text></element>
+		<element kind="textField" x="0" y="26" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" evaluationTime="Report">
+			<expression><![CDATA[$P{p_store} + " " + $F{storename} + " - "
++ new String[]{"","January","February","March","April","May","June","July","August","September","October","November","December"}[Integer.parseInt($P{p_yyyymm}.substring(4))]
++ " " + $P{p_yyyymm}.substring(0, 4) + " - actual against the " + $P{p_version} + " budget (CAD)"]]></expression>
+		</element>
+		<element kind="line" x="0" y="50" width="782" height="1" forecolor="#D6E0EF"/>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="782" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="6" y="0" width="274" height="20" fontSize="10.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Line]]></text></element>
+		<element kind="staticText" x="284" y="0" width="120" height="20" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Actual]]></text></element>
+		<element kind="staticText" x="408" y="0" width="120" height="20" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Budget]]></text></element>
+		<element kind="staticText" x="532" y="0" width="120" height="20" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Variance]]></text></element>
+		<element kind="staticText" x="656" y="0" width="120" height="20" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Variance %]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="18">
+			<element kind="rectangle" x="0" y="0" width="782" height="18" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="line" x="0" y="0" width="782" height="1" forecolor="#1F4E79">
+				<printWhenExpression><![CDATA[$F{is_total} != null && $F{is_total}.intValue() == 1]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="stmt_label" x="6" y="0" width="274" height="18" vTextAlign="Middle"><expression><![CDATA[$F{line_label}]]></expression></element>
+			<element kind="textField" style="stmt_amount" x="284" y="0" width="120" height="18" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0;($#,##0)"><expression><![CDATA[$F{actual_amt}]]></expression></element>
+			<element kind="textField" style="stmt_amount" x="408" y="0" width="120" height="18" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0;($#,##0)"><expression><![CDATA[$F{budget_amt}]]></expression></element>
+
+			<element kind="textField" style="stmt_amount" x="532" y="0" width="120" height="18" hTextAlign="Right" vTextAlign="Middle" forecolor="#5CB85C" pattern="$#,##0;($#,##0)">
+				<expression><![CDATA[$F{variance_amt}]]></expression>
+				<printWhenExpression><![CDATA[$F{variance_amt} == null || $F{variance_amt}.signum() >= 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="stmt_amount" x="532" y="0" width="120" height="18" hTextAlign="Right" vTextAlign="Middle" forecolor="#D9534F" pattern="$#,##0;($#,##0)">
+				<expression><![CDATA[$F{variance_amt}]]></expression>
+				<printWhenExpression><![CDATA[$F{variance_amt} != null && $F{variance_amt}.signum() < 0]]></printWhenExpression>
+			</element>
+
+			<element kind="textField" style="stmt_amount" x="656" y="0" width="120" height="18" hTextAlign="Right" vTextAlign="Middle" forecolor="#5CB85C" pattern="#,##0.0'%'" blankWhenNull="true">
+				<expression><![CDATA[$F{variance_pct}]]></expression>
+				<printWhenExpression><![CDATA[$F{variance_amt} == null || $F{variance_amt}.signum() >= 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="stmt_amount" x="656" y="0" width="120" height="18" hTextAlign="Right" vTextAlign="Middle" forecolor="#D9534F" pattern="#,##0.0'%'" blankWhenNull="true">
+				<expression><![CDATA[$F{variance_pct}]]></expression>
+				<printWhenExpression><![CDATA[$F{variance_amt} != null && $F{variance_amt}.signum() < 0]]></printWhenExpression>
+			</element>
+		</band>
+	</detail>
+
+	<summary height="258">
+		<element kind="textField" x="0" y="6" width="782" height="16" fontSize="10.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["Rank #" + $F{region_rank} + " of " + $F{region_n} + " stores in the " + $F{region} + " region on four-wall margin this month"]]></expression>
+			<printWhenExpression><![CDATA[$F{own_margin_pct} != null]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="0" y="6" width="782" height="16" fontSize="10.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["No sales recorded for this store in this month -- regional rank on four-wall margin does not apply"]]></expression>
+			<printWhenExpression><![CDATA[$F{own_margin_pct} == null]]></printWhenExpression>
+		</element>
+		<element kind="line" x="0" y="26" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="0" y="30" width="430" height="12" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Variance to budget by line, percent of budget -- favourable in blue, unfavourable in teal]]></text></element>
+		<element kind="staticText" x="442" y="30" width="340" height="12" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Four-wall EBITDA, trailing twelve months (CAD)]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="44" width="430" height="212" showLegend="false">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Favourable"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{line_order}.intValue() == 8 ? "Other store opex" : $F{line_label}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{variance_pct} != null && $F{variance_pct}.doubleValue() >= 0 ? $F{variance_pct} : Double.valueOf(0)]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Unfavourable"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{line_order}.intValue() == 8 ? "Other store opex" : $F{line_label}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{variance_pct} != null && $F{variance_pct}.doubleValue() < 0 ? $F{variance_pct} : Double.valueOf(0)]]></valueExpression>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true" showLabels="false">
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#239CA8"/>
+			</plot>
+		</element>
+
+		<element kind="chart" chartType="line" x="442" y="44" width="340" height="212" showLegend="false">
+			<dataset kind="category">
+				<datasetRun subDataset="ds_ebitda_trend">
+					<parameter name="p_store"><expression><![CDATA[$P{p_store}]]></expression></parameter>
+					<parameter name="p_yyyymm"><expression><![CDATA[$P{p_yyyymm}]]></expression></parameter>
+				</datasetRun>
+				<series>
+					<seriesExpression><![CDATA["Four-wall EBITDA"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{four_wall_ebitda}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showLines="true" showShapes="true" categoryAxisTickLabelRotation="-45">
+				<seriesColor order="0" color="#0550DC"/>
+			</plot>
+		</element>
+	</summary>
+
+</jasperReport>

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Executive Overview: YoY Sales Growth KPI dial (2020 vs 2019 net sales).
+     Same JFreeChart meter pattern as exec_margin_dial. Scale 0-40 (value ~+19.8%).
+     JR7-native.
+
+     NAVY THEME: see exec_margin_dial.jrxml - full-bleed #000032 background band,
+     margins folded into the element coordinates, opaque #000032 chart and plot
+     so no white plot area is painted around the dial; risk-band intervals
+     unchanged. -->
+<jasperReport name="exec_yoy_dial" language="java" pageWidth="400" pageHeight="260" columnWidth="400" leftMargin="0" rightMargin="0" topMargin="0" bottomMargin="0">
+	<query language="SQL"><![CDATA[SELECT round((SUM(CASE WHEN yr = 2020 THEN sales_ext END) / NULLIF(SUM(CASE WHEN yr = 2019 THEN sales_ext END), 0) - 1) * 100, 2) AS yoy_pct FROM dash_monthly]]></query>
+
+	<field name="yoy_pct" class="java.math.BigDecimal"/>
+
+	<background height="260">
+		<element kind="rectangle" x="0" y="0" width="400" height="260" mode="Opaque" backcolor="#000032" forecolor="#000032"/>
+	</background>
+
+	<title height="252">
+		<element kind="staticText" x="8" y="8" width="384" height="20" fontSize="12.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center"><text><![CDATA[YoY Sales Growth]]></text></element>
+
+		<element kind="chart" chartType="meter" x="90" y="32" width="220" height="220" mode="Opaque" backcolor="#000032" evaluationTime="Report">
+			<dataset kind="value">
+				<valueExpression><![CDATA[$F{yoy_pct}]]></valueExpression>
+			</dataset>
+			<plot shape="dial" units="%" tickCount="9" meterAngle="180" backcolor="#000032" needleColor="#FFFFFF" tickColor="#8AC6F8">
+				<dataRange>
+					<lowExpression><![CDATA[Double.valueOf(0)]]></lowExpression>
+					<highExpression><![CDATA[Double.valueOf(40)]]></highExpression>
+				</dataRange>
+				<valueDisplay color="#FFFFFF" mask="#,##0.0'%'"/>
+				<interval label="Low" backgroundColor="#D9534F">
+					<dataRange>
+						<lowExpression><![CDATA[Double.valueOf(0)]]></lowExpression>
+						<highExpression><![CDATA[Double.valueOf(13)]]></highExpression>
+					</dataRange>
+				</interval>
+				<interval label="Fair" backgroundColor="#F0AD4E">
+					<dataRange>
+						<lowExpression><![CDATA[Double.valueOf(13)]]></lowExpression>
+						<highExpression><![CDATA[Double.valueOf(27)]]></highExpression>
+					</dataRange>
+				</interval>
+				<interval label="Strong" backgroundColor="#5CB85C">
+					<dataRange>
+						<lowExpression><![CDATA[Double.valueOf(27)]]></lowExpression>
+						<highExpression><![CDATA[Double.valueOf(40)]]></highExpression>
+					</dataRange>
+				</interval>
+			</plot>
+		</element>
+
+		<element kind="textField" x="90" y="158" width="220" height="24" fontSize="16.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report"><expression><![CDATA["+" + new java.text.DecimalFormat("#,##0.0").format($F{yoy_pct}) + "%"]]></expression></element>
+	</title>
+
+</jasperReport>

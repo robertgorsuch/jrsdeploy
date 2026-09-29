@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Store Profit and Budget cockpit: net sales to four-wall EBITDA bridge.
+     Rendered as a JFreeChart stackedBar whose FIRST series ("base") is an
+     invisible white riser: each step's bar therefore floats at the running
+     balance instead of starting at zero, which is the standard JR-native way
+     to draw a waterfall without a customizer jar. Series 2/3/4 carry the same
+     row's amount but each returns ZERO unless the row's kind matches, so the
+     colour follows the kind (total / cost / income) and the legend collapses
+     to three meaningful entries (legend hidden here anyway - the caption
+     explains the encoding).
+
+     DEVIATION from the task brief: the brief's series expressions returned
+     java.math.BigDecimal.ZERO for a non-matching kind. That renders as a
+     1px-high coloured bar for every non-matching category, i.e. a teal hairline
+     running the whole width of the plot along y=0. Returning null instead
+     leaves the category empty for that series (StackedBarRenderer treats a null
+     as no contribution, so the stacking and every bar's position are
+     unchanged); verified by re-rendering - the hairline is gone and the eight
+     floating bars are identical.
+
+     Sanity, verified in the warehouse before embedding: step 7
+     base 60,318,426.70 + bar 2,939,000.82 = 63,257,427.52 = step 8 bar,
+     i.e. the bridge lands exactly on four-wall EBITDA.
+
+     JR7-native. stackedBar is a barPlot, so showTickMarks/showTickLabels are
+     the valid plot flags (jr7-valid-elements.md 3c); showLabels is off because
+     eight 9-digit data labels overplot at this tile size. Chart lives in the
+     title band, hence evaluationTime="Report".
+
+     POST-COMPLETION FIX (seriesColor null-registration): step_order is a
+     literal per UNION branch, so row order (and each series' designated
+     first row: Total at row 1, Cost's earliest chance at row 2, Income only
+     at row 7) is fixed regardless of data - UNLESS the aggregate feeding
+     bar_amt for that row itself resolves to SQL NULL (e.g. a measure with no
+     matching rows for yr = 2020), in which case that series misses its
+     scheduled registration and a later series can register in its place,
+     taking its seriesColor order and inverting the bridge colours - the same
+     JR7 category-dataset defect as commit 1e068ec (rpt_store_pnl_statement.jrxml)
+     and pnl_variance_region.jrxml. The JRXML's kind-mismatch -> null branching
+     is deliberately left alone here (switching it to BigDecimal.ZERO would
+     reintroduce the hairline artifact described above); instead each bar_amt
+     aggregate is wrapped in COALESCE(..., 0) in the SQL so the matching-kind
+     row is never null, guaranteeing every series registers on its scheduled
+     row in declaration order (base, Total, Cost, Income). -->
+<jasperReport name="pnl_waterfall" language="java" pageWidth="1000" pageHeight="440" columnWidth="960" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20">
+
+	<query language="SQL"><![CDATA[
+SELECT step_order, step_label, DECIMAL(base_amt, 14, 2) AS base_amt, DECIMAL(bar_amt, 14, 2) AS bar_amt, bar_kind FROM (
+  SELECT 1 AS step_order, 'Net sales' AS step_label, 0 AS base_amt, COALESCE(SUM(net_sales), 0) AS bar_amt, 'total' AS bar_kind FROM store_pnl_monthly WHERE yr = 2020
+  UNION ALL SELECT 2, 'COGS', SUM(net_sales) - SUM(cogs), COALESCE(SUM(cogs), 0), 'down' FROM store_pnl_monthly WHERE yr = 2020
+  UNION ALL SELECT 3, 'Shrink', SUM(gross_margin) - SUM(shrinkage_cost), COALESCE(SUM(shrinkage_cost), 0), 'down' FROM store_pnl_monthly WHERE yr = 2020
+  UNION ALL SELECT 4, 'Labour', SUM(gross_margin) - SUM(shrinkage_cost) - SUM(labour_cost + labour_burden), COALESCE(SUM(labour_cost + labour_burden), 0), 'down' FROM store_pnl_monthly WHERE yr = 2020
+  UNION ALL SELECT 5, 'Occupancy + utilities', SUM(gross_margin) - SUM(shrinkage_cost) - SUM(labour_cost + labour_burden) - SUM(occupancy_cost + utilities_cost), COALESCE(SUM(occupancy_cost + utilities_cost), 0), 'down' FROM store_pnl_monthly WHERE yr = 2020
+  UNION ALL SELECT 6, 'Other opex', SUM(four_wall_ebitda) - SUM(promo_subsidy_income), COALESCE(SUM(delivery_partner_cost + card_processing_fees + other_opex), 0), 'down' FROM store_pnl_monthly WHERE yr = 2020
+  UNION ALL SELECT 7, 'Promo subsidy', SUM(four_wall_ebitda) - SUM(promo_subsidy_income), COALESCE(SUM(promo_subsidy_income), 0), 'up' FROM store_pnl_monthly WHERE yr = 2020
+  UNION ALL SELECT 8, 'Four-wall EBITDA', 0, COALESCE(SUM(four_wall_ebitda), 0), 'total' FROM store_pnl_monthly WHERE yr = 2020
+) w ORDER BY step_order
+	]]></query>
+
+	<field name="step_order" class="java.lang.Integer"/>
+	<field name="step_label" class="java.lang.String"/>
+	<field name="base_amt" class="java.math.BigDecimal"/>
+	<field name="bar_amt" class="java.math.BigDecimal"/>
+	<field name="bar_kind" class="java.lang.String"/>
+
+	<title height="400">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="960" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Net Sales to Four-Wall EBITDA]]></text></element>
+		<element kind="staticText" x="0" y="26" width="960" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[2020, all stores, CAD. Cost steps in teal, income in light teal.]]></text></element>
+
+		<element kind="chart" chartType="stackedBar" x="0" y="60" width="960" height="340" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["base"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{step_label}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{base_amt}]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Total"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{step_label}]]></categoryExpression>
+					<valueExpression><![CDATA["total".equals($F{bar_kind}) ? $F{bar_amt} : null]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Cost"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{step_label}]]></categoryExpression>
+					<valueExpression><![CDATA["down".equals($F{bar_kind}) ? $F{bar_amt} : null]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Income"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{step_label}]]></categoryExpression>
+					<valueExpression><![CDATA["up".equals($F{bar_kind}) ? $F{bar_amt} : null]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" showLabels="false" categoryAxisTickLabelRotation="-30">
+				<seriesColor order="0" color="#FFFFFF"/>
+				<seriesColor order="1" color="#0550DC"/>
+				<seriesColor order="2" color="#239CA8"/>
+				<seriesColor order="3" color="#1DB6C0"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

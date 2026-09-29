@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Workforce and Labour cockpit: 5-up KPI strip. Layout pattern mirrors
+     pnl_kpi_strip.jrxml / ops_kpi_chips.jrxml (dividers on the cell
+     boundaries, 13pt label / 26pt value, centered, evaluationTime="Report"
+     so the single result row is available in the title band).
+
+     COCKPIT archetype: no parameters and no input controls on any tile of
+     this dashboard, deliberately unlike the Console dashboards in this suite
+     (retention, supply, treasury), which carry a shared filter strip. The
+     numbers here are the whole-estate 2020 position, full stop.
+
+     Cell pitch is 316px starting at x=10 (300px cell + 16px gutter), so the
+     fifth cell ends at 1574 inside the 1580px column.
+
+     Reconciled against the warehouse before embedding: labour cost
+     35,169,013.40 for 2020, 8.44 pct of 2020 net sales, 20.79 per scheduled
+     hour, 2,340 active staff, 245.96 of allocated sales per scheduled hour.
+     NOTE the task brief predicted "around 10.40" for cost per hour; the real
+     figure is 20.79, i.e. the brief's estimate was low by roughly 2x. The
+     query is unchanged from the brief - only the expectation was wrong. -->
+<jasperReport name="lab_kpi" language="java" pageWidth="1600" pageHeight="130" columnWidth="1580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT DECIMAL(SUM(labour_cost), 14, 2) AS labour_cost,
+       DECIMAL(100.0 * FLOAT8(SUM(labour_cost)) / FLOAT8(NULLIF((SELECT SUM(net_sales) FROM store_pnl_monthly WHERE yr = 2020), 0)), 6, 2) AS labour_pct_sales,
+       DECIMAL(FLOAT8(SUM(labour_cost)) / FLOAT8(NULLIF(SUM(scheduled_hours), 0)), 8, 2) AS cost_per_hour,
+       (SELECT COUNT(*) FROM employees WHERE employment_status = 'Active') AS active_staff,
+       DECIMAL(FLOAT8(SUM(allocated_sales)) / FLOAT8(NULLIF(SUM(scheduled_hours), 0)), 8, 2) AS sales_per_hour
+FROM dash_labour
+WHERE yyyymm / 100 = 2020
+	]]></query>
+
+	<field name="labour_cost" class="java.math.BigDecimal"/>
+	<field name="labour_pct_sales" class="java.math.BigDecimal"/>
+	<field name="cost_per_hour" class="java.math.BigDecimal"/>
+	<field name="active_staff" class="java.lang.Long"/>
+	<field name="sales_per_hour" class="java.math.BigDecimal"/>
+
+	<title height="110">
+		<element kind="staticText" x="10" y="8" width="300" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[2020 Labour Cost]]></text></element>
+		<element kind="textField" x="10" y="30" width="300" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0" evaluationTime="Report"><expression><![CDATA[$F{labour_cost}]]></expression></element>
+
+		<element kind="line" x="318" y="20" width="1" height="70" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="326" y="8" width="300" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[pct of Net Sales]]></text></element>
+		<element kind="textField" x="326" y="30" width="300" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" evaluationTime="Report"><expression><![CDATA[$F{labour_pct_sales}]]></expression></element>
+
+		<element kind="line" x="634" y="20" width="1" height="70" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="642" y="8" width="300" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Cost per Hour]]></text></element>
+		<element kind="textField" x="642" y="30" width="300" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0.00" evaluationTime="Report"><expression><![CDATA[$F{cost_per_hour}]]></expression></element>
+
+		<element kind="line" x="950" y="20" width="1" height="70" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="958" y="8" width="300" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Active Staff]]></text></element>
+		<element kind="textField" x="958" y="30" width="300" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0" evaluationTime="Report"><expression><![CDATA[$F{active_staff}]]></expression></element>
+
+		<element kind="line" x="1266" y="20" width="1" height="70" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="1274" y="8" width="300" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Sales per Labour Hour]]></text></element>
+		<element kind="textField" x="1274" y="30" width="300" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0.00" evaluationTime="Report"><expression><![CDATA[$F{sales_per_hour}]]></expression></element>
+	</title>
+
+</jasperReport>

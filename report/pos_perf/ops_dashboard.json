@@ -1,0 +1,44 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_operations_console",
+  "label": "POS Operations Console",
+  "dashletFilterShowPopup": true,
+  "dashlets": [
+    {
+      "resource": "/reports/pos_perf/ops_kpi_chips",
+      "label": "Key Metrics",
+      "showTitleBar": false,
+      "x": 0, "y": 0, "width": 40, "height": 4
+    },
+    {
+      "resource": "/reports/pos_perf/ops_sales_trend",
+      "label": "Net Sales Trend",
+      "showTitleBar": false,
+      "x": 0, "y": 4, "width": 20, "height": 10
+    },
+    {
+      "resource": "/reports/pos_perf/ops_margin_trend",
+      "label": "Gross Margin Trend",
+      "showTitleBar": false,
+      "x": 20, "y": 4, "width": 20, "height": 10
+    },
+    {
+      "resource": "/reports/pos_perf/ops_region_bar",
+      "label": "Net Sales by Region",
+      "showTitleBar": false,
+      "x": 0, "y": 14, "width": 20, "height": 10
+    },
+    {
+      "resource": "/reports/pos_perf/ops_promo_panel",
+      "label": "Promotion Mix",
+      "showTitleBar": false,
+      "x": 20, "y": 14, "width": 20, "height": 10
+    },
+    {
+      "resource": "/reports/pos_perf/ops_leaderboard",
+      "label": "Store Leaderboard",
+      "showTitleBar": false,
+      "x": 0, "y": 24, "width": 40, "height": 8
+    }
+  ]
+}

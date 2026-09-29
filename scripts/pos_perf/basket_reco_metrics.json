@@ -1,0 +1,37 @@
+{
+  "model_version": "basket-reco-v1",
+  "run_date": "2026-08-26",
+  "items": 915,
+  "pairs": 230248,
+  "train_baskets": 54588127,
+  "eval_baskets": 300000,
+  "top_n": 10,
+  "min_pair_support": 30,
+  "best_scorer": "cosine",
+  "beats_popularity": true,
+  "scorers": {
+    "cosine": {
+      "hit@1": 0.07764,
+      "hit@5": 0.21639333333333333,
+      "hit@10": 0.30482,
+      "mrr": 0.15377269659309115,
+      "n": 300000
+    },
+    "lift": {
+      "hit@1": 0.04185,
+      "hit@5": 0.13128333333333334,
+      "hit@10": 0.19964,
+      "mrr": 0.09510146584263653,
+      "n": 300000
+    },
+    "popularity": {
+      "hit@1": 0.02158,
+      "hit@5": 0.06906333333333334,
+      "hit@10": 0.15777,
+      "mrr": 0.06279357753081133,
+      "n": 300000
+    }
+  },
+  "same_category_share": 0.664179104477612,
+  "uplift_vs_popularity_mrr": 2.4488602599149334
+}

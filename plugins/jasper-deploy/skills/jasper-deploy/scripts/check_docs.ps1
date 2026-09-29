@@ -11,7 +11,7 @@
   catches that offline, before it bites someone mid-deploy.
 
   Against the skill base dir (default: the skill root = parent of scripts\,
-  overridable with -SkillDir) it runs three checks:
+  overridable with -SkillDir) it runs five checks:
 
     1. Broken file links. Parses SKILL.md and every references\*.md for relative
        file references -- both markdown `[text](path)` links and inline-code
@@ -37,14 +37,34 @@
        how scaffold_kpi_dial.py, gen_dashboard.py, sync_manifest.py and
        pdf_verify.py once went missing from the map.
 
+    5. Junction / duplication guard. The canonical skill source is
+       plugins\jasper-deploy\skills\jasper-deploy; .claude\skills\jasper-deploy
+       is only a local junction to it. Two failure modes are caught:
+         a) files under .claude\skills\jasper-deploy tracked in git as a SEPARATE
+            path (`git ls-files .claude/skills/jasper-deploy` must be empty --
+            this is how commit f2184cf's duplicates crept in through the junction);
+         b) .claude\skills\jasper-deploy exists as a REAL directory (not a
+            junction/symlink) whose content diverges byte-for-byte from the
+            plugin skill dir -- two copies silently drift apart.
+       Degrades gracefully: skipped (not failed) when git is unavailable, the
+       checkout is not a git repo, or the .claude path does not exist; runs the
+       same on Windows (junction) and macOS/Linux (symlink).
+
   Prints a PASS/FAIL summary with counts (files scanned, links checked, broken).
   Exits 0 when clean, 1 if any broken link, missing capability-map script,
-  stale step count, or unindexed script is found -- so it slots into a docs/CI
-  gate.
+  stale step count, unindexed script, or junction duplicate is found -- so it
+  slots into a docs/CI gate.
 
 .PARAMETER SkillDir
   Skill base directory (the skill root holding SKILL.md, references\ and
   scripts\). Defaults to the parent of this script's folder.
+
+.PARAMETER ClaudeSkillDir
+  Override for the .claude\skills\jasper-deploy path used by check 5 (default:
+  <repo root>\.claude\skills\jasper-deploy). Mainly for tests.
+
+.PARAMETER SkipJunctionCheck
+  Skip check 5 entirely.
 
 .EXAMPLE
   & check_docs.ps1
@@ -59,7 +79,9 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$SkillDir
+    [string]$SkillDir,
+    [string]$ClaudeSkillDir,
+    [switch]$SkipJunctionCheck
 )
 
 $ErrorActionPreference = 'Stop'
@@ -253,6 +275,71 @@ if (Test-Path $scriptsDir -PathType Container) {
     }
 }
 
+# --- check 5: junction / duplication guard -----------------------------------
+# a) nothing under .claude/skills/jasper-deploy may be tracked in git (the
+#    junction let `git add -A` re-add the moved skill at its old path, f2184cf);
+# b) if that path is a real directory rather than a junction/symlink, it must be
+#    byte-identical to the plugin skill dir. Skipped (with a note) outside git.
+$junctionTracked = @()   # tracked paths under .claude/skills/jasper-deploy
+$junctionDiverged = @()  # relative paths that differ between the two copies
+$junctionNote = ''
+if (-not $SkipJunctionCheck) {
+    if (-not $ClaudeSkillDir) { $ClaudeSkillDir = Join-Path $repoRoot '.claude/skills/jasper-deploy' }
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    $inRepo = $false
+    if ($git) {
+        try {
+            $null = & git -C $repoRoot rev-parse --is-inside-work-tree 2>$null
+            $inRepo = ($LASTEXITCODE -eq 0)
+        } catch { $inRepo = $false }
+    }
+    if ($inRepo) {
+        try {
+            $relClaude = '.claude/skills/jasper-deploy'
+            $tracked = & git -C $repoRoot ls-files -- $relClaude 2>$null
+            if ($LASTEXITCODE -eq 0 -and $tracked) { $junctionTracked = @($tracked | Where-Object { $_ }) }
+        } catch { }
+    } else {
+        $junctionNote = 'git unavailable or not a git checkout; tracked-duplicate check skipped'
+    }
+
+    if (Test-Path -LiteralPath $ClaudeSkillDir -PathType Container) {
+        $item = Get-Item -LiteralPath $ClaudeSkillDir -Force
+        # ReparsePoint covers NTFS junctions, Windows symlinks and POSIX symlinks (pwsh)
+        $isLink = ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+        if (-not $isLink -and $item.PSObject.Properties.Name -contains 'LinkType' -and $item.LinkType) { $isLink = $true }
+        if (-not $isLink) {
+            # real directory: compare every file both ways
+            $src = (Resolve-Path -LiteralPath $SkillDir).Path
+            $dst = (Resolve-Path -LiteralPath $ClaudeSkillDir).Path
+            function Get-RelFiles([string]$base) {
+                Get-ChildItem -LiteralPath $base -Recurse -File -Force |
+                    Where-Object { $_.FullName -notmatch '[\\/](__pycache__|out|\.git)[\\/]' } |
+                    ForEach-Object { $_.FullName.Substring($base.Length).TrimStart('\', '/') -replace '\\', '/' }
+            }
+            $a = @(Get-RelFiles $src); $b = @(Get-RelFiles $dst)
+            $union = @($a + $b | Sort-Object -Unique)
+            foreach ($rel in $union) {
+                $pa = Join-Path $src $rel; $pb = Join-Path $dst $rel
+                if (-not (Test-Path -LiteralPath $pa -PathType Leaf) -or -not (Test-Path -LiteralPath $pb -PathType Leaf)) {
+                    $junctionDiverged += $rel; continue
+                }
+                $ha = (Get-FileHash -LiteralPath $pa -Algorithm SHA256).Hash
+                $hb = (Get-FileHash -LiteralPath $pb -Algorithm SHA256).Hash
+                if ($ha -ne $hb) { $junctionDiverged += $rel }
+            }
+            if ($junctionNote) { $junctionNote += '; ' }
+            $junctionNote += "$ClaudeSkillDir is a real directory (not a junction/symlink); byte-compared $($union.Count) file(s)"
+        } else {
+            if ($junctionNote) { $junctionNote += '; ' }
+            $junctionNote += "$ClaudeSkillDir is a junction/symlink (ok)"
+        }
+    } else {
+        if ($junctionNote) { $junctionNote += '; ' }
+        $junctionNote += '.claude/skills/jasper-deploy absent (nothing to compare)'
+    }
+}
+
 # --- report -------------------------------------------------------------------
 function Rel([string]$p) {
     if ($p.StartsWith($SkillDir)) { return $p.Substring($SkillDir.Length).TrimStart('\', '/') }
@@ -290,16 +377,30 @@ if ($unindexed) {
     }
 }
 
-$totalBad = $broken.Count + $missing.Count + $stale.Count + $unindexed.Count
+if ($junctionTracked) {
+    Write-Host ""
+    Write-Host "Files tracked in git under .claude/skills/jasper-deploy (duplicates of the plugin skill; run: git rm -r --cached .claude/skills/jasper-deploy):" -ForegroundColor Red
+    foreach ($t in $junctionTracked) { Write-Host ("  {0}" -f $t) -ForegroundColor Red }
+}
+if ($junctionDiverged) {
+    Write-Host ""
+    Write-Host ".claude/skills/jasper-deploy is a real directory that DIVERGES from plugins/jasper-deploy/skills/jasper-deploy (replace it with a junction/symlink):" -ForegroundColor Red
+    foreach ($dv in $junctionDiverged) { Write-Host ("  {0}" -f $dv) -ForegroundColor Red }
+}
+
+$junctionBad = $junctionTracked.Count + $junctionDiverged.Count
+$totalBad = $broken.Count + $missing.Count + $stale.Count + $unindexed.Count + $junctionBad
 
 Write-Host ""
 Write-Host ("Scanned {0} doc file(s); checked {1} link(s) + {2} capability-map script(s) + {3} scripts-dir file(s)." -f `
     $docFiles.Count, $linksChecked, $capScriptsChecked, $scriptsChecked)
+if ($SkipJunctionCheck) { Write-Host "Junction guard: skipped (-SkipJunctionCheck)." }
+elseif ($junctionNote) { Write-Host ("Junction guard: {0}." -f $junctionNote) }
 
 if ($totalBad -eq 0) {
-    Write-Host ("PASS: 0 broken link(s), 0 missing script(s), 0 stale count(s), 0 unindexed script(s).") -ForegroundColor Green
+    Write-Host ("PASS: 0 broken link(s), 0 missing script(s), 0 stale count(s), 0 unindexed script(s), 0 junction duplicate(s).") -ForegroundColor Green
     exit 0
 }
-Write-Host ("FAIL: {0} broken link(s), {1} missing script(s), {2} stale count(s), {3} unindexed script(s)." -f `
-    $broken.Count, $missing.Count, $stale.Count, $unindexed.Count) -ForegroundColor Red
+Write-Host ("FAIL: {0} broken link(s), {1} missing script(s), {2} stale count(s), {3} unindexed script(s), {4} junction duplicate(s)." -f `
+    $broken.Count, $missing.Count, $stale.Count, $unindexed.Count, $junctionBad) -ForegroundColor Red
 exit 1

@@ -173,3 +173,91 @@ first (the ZIP-upload UI refuses to overwrite). **Verified:** scaffold → deplo
 the CSS serves back from its repo URI. The scaffolded selectors (banner, primary
 buttons, login, table headers) are a **starting point** — refine against your
 install's actual markup.
+
+---
+
+## Gotchas: datasources, Domains, OLAP, warehouse SQL
+
+Moved here from `gotchas.md` (which keeps the symptom index). Entry ids (G27...)
+are stable. Each entry: Symptom / Cause / Fix / Handled-by. ASCII only.
+
+### G27
+- Symptom: the datasource list looks empty / returns `204` ("no datasources").
+- Cause: querying `type=dataSource` returns 204/empty on this server.
+- Fix: use `type=jdbcDataSource`:
+  `.../rest_v2/resources?type=jdbcDataSource&recursive=true`.
+- Handled-by: caller must use the right type token.
+
+### G28
+- Symptom: AWS datasource create `400` "invalid Region".
+- Cause: `-Region` is the AWS endpoint HOST, not the bare region code.
+- Fix: pass `us-east-1.amazonaws.com` (or `eu-west-1.amazonaws.com`), NOT `us-east-1`.
+- Handled-by: `create_datasource.ps1 -Type aws -Region <host>` (default
+  `us-east-1.amazonaws.com`).
+
+### G29
+- Symptom: a non-JDBC datasource created `201` but cannot actually connect.
+- Cause: create only validates the descriptor shape and stores the resource;
+  connecting needs the server-side prerequisite (a JNDI resource, a Spring bean on
+  the classpath, a custom data-source service, the referenced sub-datasources, or
+  live AWS creds).
+- Fix: provision the server-side prerequisite separately.
+- Handled-by: `create_datasource.ps1 -Type jndi|bean|custom|virtual|aws` (descriptor only).
+
+### G30
+- Symptom: Domain create fails `500 resource.does.not.exist`.
+- Cause: a pre-uploaded `schemaFileReference` is used; the `_files` child is orphaned
+  until the parent exists.
+- Fix: embed the schema INLINE in the descriptor (`schema.schemaFile.content` base64,
+  like a reportUnit's jrxml).
+- Handled-by: `create_domain.ps1` (schema materializes at `<Uri>_files/schema.xml`).
+  Note: a Mondrian schema is the opposite -- standalone/referenced, not embedded.
+
+### G31
+- Symptom: Domain metadata wrong / does not behave like the sample Domains.
+- Cause: the schema's `<jdbcTable datasourceId="...">` does not equal the LEAF of
+  `-DataSourceUri`.
+- Fix: pass the datasource leaf as `--datasource-id`.
+- Handled-by: `scaffold_domain_schema.py` / `create_domain.ps1` (warns on mismatch).
+
+### G32
+- Symptom: `olapUnit` analysis view fails `500` on create (schema + connection are fine).
+- Cause: creating the view OPENS the connection and validates the MDX against the
+  live cube; it 500s unless tables/columns match.
+- Fix: best-effort -- the schema + connection are still left in place. Fix the schema
+  to match the backing DB if you need the view.
+- Handled-by: `create_mondrian.ps1` warns and continues.
+
+### G32b
+- Symptom: multi-table Domain create fails
+  `400 domain.schema.presentation.element.name.not.unique` naming a column.
+- Cause: `<item id>`s must be GLOBALLY unique across ALL itemGroups, and a join
+  key by definition appears in two tables.
+- Fix: dedupe designer-style -- keep the first occurrence plain, suffix later
+  ones `_1`, `_2`, ... (the label can stay the plain column name).
+- Handled-by: `scaffold_domain_schema.py` (multi-table mode dedupes item ids).
+
+### G58
+- Symptom: two dashboards (or a dashboard tile and a semantic-layer metric) show
+  different values for a same-named metric -- the canonical case is Gross Margin
+  31.6 pct on one board next to 33.7 pct on another -- and a reconciliation
+  hunt finds no basis error.
+- Cause: period, not basis. Metrics computed over different period windows
+  disagree even when the formula is identical. In the POS suite the exec board
+  is lifetime (2019+2020: 31.6 pct) while the store P&L board is scoped to 2020
+  alone (33.7 pct; 2019 alone is 29.2 pct). The two sources reconcile to within
+  rounding once the window is matched.
+- Fix: always state the window in the tile label ("Gross Margin, 2019-2020",
+  "Net Sales 2020"), and when scaffolding an aggregate for a report, carry the
+  period into the table or the SQL comment. Reconcile across boards on the same
+  window before calling anything a data bug.
+- Handled-by: the POS-suite semantic-layer cross-check
+  (`scripts/pos_perf/wobby_metric_crosscheck.py` in the repo) reconciles tiles
+  to the analyst's metric expressions before a phase is accepted; this is how
+  the trap was caught.
+
+### Warehouse SQL (Actian Avalanche / X100)
+When the datasource is an Actian X100 warehouse, the SQL a report or Domain can
+run is more restricted than PostgreSQL: no ordered aggregate windows, no
+correlated variables inside aggregates, and a few tooling traps in the
+`sql.ps1` loader. See `x100-sql.md` before scaffolding report SQL against it.

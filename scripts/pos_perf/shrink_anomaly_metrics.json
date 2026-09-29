@@ -1,0 +1,39 @@
+{
+  "model_version": "shrink-anomaly-v1",
+  "run_date": "2026-08-26",
+  "cells": 45136,
+  "stores": 330,
+  "categories": 12,
+  "months": 24,
+  "z_threshold": 3.5,
+  "contamination": 0.02,
+  "min_sales": 250.0,
+  "flagged_cells": 2464,
+  "flagged_share": 0.05459057071960298,
+  "flag_source_counts": {
+    "none": 42672,
+    "robust_z": 1561,
+    "both": 704,
+    "isolation_forest": 199
+  },
+  "agreement_both": 704,
+  "stability": {
+    "repeat_rate": 0.3798185941043084,
+    "chance_rate": 0.275639141933588,
+    "lift_over_chance": 1.377955944282475,
+    "h1_flagged_pairs": 882,
+    "h2_flagged_pairs": 938
+  },
+  "separation": {
+    "flagged_mean_rate": 0.014862828544759324,
+    "unflagged_mean_rate": 0.0038177717070396605,
+    "flagged_mean_value": 134.90528409090908,
+    "unflagged_mean_value": 37.6741990063742
+  },
+  "concentration": {
+    "flagged_share_of_shrink_dollars": 0.17134008223871502,
+    "flagged_share_of_cells": 0.05459057071960298,
+    "excess_shrink_in_flagged": 257615.72573056983,
+    "total_shrink": 1940040.04
+  }
+}

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Marketing and Digital cockpit: e-commerce order value as a percent of
+     total net sales, by month. dash_ecom_monthly coalesces its delivery
+     partner to the literal 'Pickup' for pickup-channel orders (Task 2), so
+     the SUM(order_value) here already spans the whole online-order surface
+     with no blank/NULL member - delivery plus pickup together.
+
+     dash_ecom_monthly spans the full 2019-01 to 2020-12 range (Task 2's
+     acceptance check), so GROUP BY e.yyyymm alone drives the month axis; a
+     month is only missing from the chart if dash_ecom_monthly itself has no
+     row for it, not because of anything this query does.
+
+     VALUE IS ZERO GUARDED, DELIBERATELY. The per-month denominator is a
+     correlated subquery against store_pnl_monthly keyed on yyyymm; NULLIF
+     already guards the zero-denominator case, but a month where that
+     subquery returns no row at all (a coverage gap, e.g. a store network
+     with a mid-period opening) yields a NULL row rather than a divide-by-zero,
+     and a null on the first row would fail to register the series and shift
+     the seriesColor order binding. The value expression defaults to zero.
+
+     JR7-native area plot: per jr7-valid-elements.md 3e, JRAreaPlot extends
+     ONLY JRCategoryPlot and accepts NEITHER showTickMarks/showTickLabels NOR
+     showLines/showShapes - a bare <plot> plus seriesColor and (from the
+     shared JRCategoryPlot family) categoryAxisTickLabelRotation, same as
+     pnl_contribution_trend.jrxml's line plot uses for its month axis. Chart
+     is in the title band, so evaluationTime="Report". Cockpit archetype: no
+     parameters. -->
+<jasperReport name="mkt_ecom_share" language="java" pageWidth="1040" pageHeight="440" columnWidth="1020" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT e.yyyymm,
+       DECIMAL(100.0 * FLOAT8(SUM(e.order_value)) / FLOAT8(NULLIF((SELECT SUM(p.net_sales) FROM store_pnl_monthly p WHERE p.yyyymm = e.yyyymm), 0)), 6, 2) AS ecom_share_pct
+FROM dash_ecom_monthly e
+GROUP BY e.yyyymm
+ORDER BY e.yyyymm
+	]]></query>
+
+	<field name="yyyymm" class="java.lang.Integer"/>
+	<field name="ecom_share_pct" class="java.math.BigDecimal"/>
+
+	<title height="420">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="1020" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[E-Commerce Share of Net Sales, Monthly]]></text></element>
+		<element kind="staticText" x="0" y="26" width="1020" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Online order value (delivery plus pickup) as a percent of total net sales]]></text></element>
+
+		<element kind="chart" chartType="area" x="0" y="48" width="1020" height="372" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["E-Commerce Share"]]></seriesExpression>
+					<categoryExpression><![CDATA[String.valueOf($F{yyyymm})]]></categoryExpression>
+					<valueExpression><![CDATA[$F{ecom_share_pct} == null ? java.math.BigDecimal.ZERO : $F{ecom_share_pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot categoryAxisTickLabelRotation="-45">
+				<seriesColor order="0" color="#1DB6C0"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

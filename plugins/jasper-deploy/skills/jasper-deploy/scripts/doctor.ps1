@@ -31,9 +31,27 @@
     7. JR runtime jars: Resolve-JrLib + a jasperreports-*.jar and the PostgreSQL
        driver jar in that dir.
     8. Chart-customizer jar on the live JRS classpath (WARN if absent -- only
-       bar-gradient reports need it).
-    9. Python on PATH; sqlglot + pypdfium2 importable (WARN if missing).
-   10. Key scripts present in scripts\.
+       bar-gradient reports need it). The webapp is located from the optional
+       jrs.config.json key "jrsWebappDir" (or "chartCustomizerJar" for the jar
+       itself; Windows falls back to the standard C:\Jaspersoft path). When
+       found, its SHA-256 is compared with the bundled
+       chart_customizers\actian-chart-customizers.jar: WARN on mismatch (stale
+       build on the server) with copy + restart instructions.
+    9. Repo DB port from the webapp's own config: parses the jdbc URL in
+       <webapp>\META-INF\context.xml (or WEB-INF\js.jdbc.properties), prints
+       the ACTUAL host:port/db, and WARNs when jrs.config.json "repoDb"
+       disagrees. Bundled PostgreSQL often listens on a non-default port such
+       as 5433 -- never assume 5432.
+   10. Environment profiles: every entry under jrs.config.json "environments"
+       gets a GET rest_v2/serverInfo (profile keys shadow top-level ones) and
+       its version is printed; WARN per unreachable profile.
+   11. Python on PATH; sqlglot + pypdfium2 importable (WARN if missing).
+   12. Key scripts present in scripts\.
+
+.PARAMETER ConfigPath
+  Path to the jrs.config.json to inspect (default: <skill root>\jrs.config.json).
+  Affects the config, chart-customizer, repo-port and environment checks; the
+  shared credential resolution (Resolve-JrsConfig) still reads the skill-root file.
 
 .EXAMPLE
   .\doctor.ps1
@@ -51,12 +69,38 @@ param(
     [string]$Password,
     [string]$Database = "postgis_34_sample",
     [string]$DbHost = "localhost",
-    [string]$DbUser = "postgres"
+    [string]$DbUser = "postgres",
+    [string]$ConfigPath
 )
 
 # Never let one bad check abort the whole preflight; each check is try/caught.
 $ErrorActionPreference = "Continue"
 . (Join-Path $PSScriptRoot "_jrs_common.ps1")
+
+if (-not $ConfigPath) { $ConfigPath = Join-Path $PSScriptRoot "../jrs.config.json" }
+
+# Parsed jrs.config.json (or $null) for the checks that read optional keys.
+function Get-DoctorConfig {
+    if (-not (Test-Path $ConfigPath)) { return $null }
+    try { return (Get-Content $ConfigPath -Raw | ConvertFrom-Json) } catch { return $null }
+}
+
+# Resolve the JRS webapp directory: config "jrsWebappDir" -> parent of
+# "chartCustomizerJar" (.../WEB-INF/lib/x.jar -> webapp) -> Windows default install.
+function Resolve-JrsWebappDir {
+    $cfg = Get-DoctorConfig
+    if ($cfg -and $cfg.PSObject.Properties.Name -contains 'jrsWebappDir' -and $cfg.jrsWebappDir) {
+        return [string]$cfg.jrsWebappDir
+    }
+    if ($cfg -and $cfg.PSObject.Properties.Name -contains 'chartCustomizerJar' -and $cfg.chartCustomizerJar) {
+        $lib = Split-Path ([string]$cfg.chartCustomizerJar) -Parent      # WEB-INF/lib
+        if ($lib) { $webinf = Split-Path $lib -Parent; if ($webinf) { return (Split-Path $webinf -Parent) } }
+    }
+    if (Test-JrsWindows) {
+        return "C:\Jaspersoft\jasperreports-server-10.0.0\apache-tomcat\webapps\jasperserver-pro"
+    }
+    return $null
+}
 
 $script:fail = 0
 $script:warn = 0
@@ -92,7 +136,7 @@ Write-Host ("=" * 46)
 
 # --- 1. jrs.config.json present + parseable + required keys --------------------
 Run-Check "jrs.config.json" {
-    $cfgPath = Join-Path $PSScriptRoot "../jrs.config.json"
+    $cfgPath = $ConfigPath
     if (-not (Test-Path $cfgPath)) {
         return @{ Status = "FAIL"; Detail = "missing; copy jrs.config.example.json -> jrs.config.json" }
     }
@@ -175,10 +219,8 @@ Run-Check "repo metadata DB" {
     }
     # Resolve like report_usage.ps1: "repoDb" in jrs.config.json -> defaults.
     $repo = $null
-    $cfgPath = Join-Path $PSScriptRoot "../jrs.config.json"
-    if (Test-Path $cfgPath) {
-        try { $repo = (Get-Content $cfgPath -Raw | ConvertFrom-Json).repoDb } catch {}
-    }
+    $cfgObj = Get-DoctorConfig
+    if ($cfgObj) { $repo = $cfgObj.repoDb }
     $rHost = if ($repo -and $repo.host)     { $repo.host }     else { "localhost" }
     $rPort = if ($repo -and $repo.port)     { [int]$repo.port } else { 5433 }
     $rDb   = if ($repo -and $repo.database) { $repo.database } else { "jasperserver" }
@@ -264,25 +306,125 @@ Run-Check "JR runtime jars" {
 # --- 5. Chart-customizer jar on the live JRS classpath -------------------------
 Run-Check "chart-customizer jar" {
     # The jar lives in the JRS webapp's WEB-INF/lib, whose path is install- and
-    # OS-specific. Resolve it in order: config key `chartCustomizerJar` -> the
-    # known Windows install default (only when actually on Windows). On macOS/Linux
-    # set `chartCustomizerJar` in jrs.config.json to point at your JRS lib dir.
+    # OS-specific. Resolve it in order: config key `chartCustomizerJar` -> config
+    # key `jrsWebappDir` + WEB-INF/lib -> the known Windows install default (only
+    # when actually on Windows). On macOS/Linux set `jrsWebappDir` in
+    # jrs.config.json to your JRS webapp dir.
     $tomcatLib = $null
-    $cfgPath = Join-Path $PSScriptRoot "../jrs.config.json"
-    if (Test-Path $cfgPath) {
-        try { $tomcatLib = (Get-Content $cfgPath -Raw | ConvertFrom-Json).chartCustomizerJar } catch {}
-    }
-    if ([string]::IsNullOrEmpty($tomcatLib) -and (Test-JrsWindows)) {
-        $tomcatLib = "C:\Jaspersoft\jasperreports-server-10.0.0\apache-tomcat\webapps\jasperserver-pro\WEB-INF\lib\actian-chart-customizers.jar"
+    $cfgObj = Get-DoctorConfig
+    if ($cfgObj -and $cfgObj.PSObject.Properties.Name -contains 'chartCustomizerJar') { $tomcatLib = $cfgObj.chartCustomizerJar }
+    if ([string]::IsNullOrEmpty($tomcatLib)) {
+        $webapp = Resolve-JrsWebappDir
+        if ($webapp) { $tomcatLib = Join-Path $webapp "WEB-INF/lib/actian-chart-customizers.jar" }
     }
     $bundled = Join-Path $PSScriptRoot "../chart_customizers/actian-chart-customizers.jar"
     if ($tomcatLib -and (Test-Path $tomcatLib)) {
-        return @{ Status = "PASS"; Detail = "on classpath: $tomcatLib" }
+        if (-not (Test-Path $bundled)) {
+            return @{ Status = "PASS"; Detail = "on classpath: $tomcatLib (bundled jar absent; SHA not compared)" }
+        }
+        $shaLive = (Get-FileHash -LiteralPath $tomcatLib -Algorithm SHA256).Hash
+        $shaSrc  = (Get-FileHash -LiteralPath $bundled  -Algorithm SHA256).Hash
+        if ($shaLive -eq $shaSrc) {
+            return @{ Status = "PASS"; Detail = "on classpath: $tomcatLib (SHA-256 matches bundled jar, $($shaSrc.Substring(0,12))...)" }
+        }
+        return @{ Status = "WARN"; Detail = "on classpath but STALE: $tomcatLib SHA-256 $($shaLive.Substring(0,12))... != bundled $($shaSrc.Substring(0,12))... -- copy $((Resolve-Path $bundled).Path) over it and restart Tomcat (gradient bars/trend lines render from the old build until then)" }
     }
     $hint = "not located on JRS classpath -- only bar-gradient reports need it."
-    if ([string]::IsNullOrEmpty($tomcatLib)) { $hint += " Set `"chartCustomizerJar`" in jrs.config.json to your JRS WEB-INF/lib jar to check it." }
-    if (Test-Path $bundled) { $hint += " Bundled source: $((Resolve-Path $bundled).Path)" }
+    if ([string]::IsNullOrEmpty($tomcatLib)) { $hint += " Set `"jrsWebappDir`" (or `"chartCustomizerJar`") in jrs.config.json to check it." }
+    else { $hint += " Expected at $tomcatLib." }
+    if (Test-Path $bundled) { $hint += " Install: copy $((Resolve-Path $bundled).Path) into <webapp>/WEB-INF/lib and restart Tomcat." }
     return @{ Status = "WARN"; Detail = $hint }
+}
+
+# --- 5b. Repo DB port from the webapp's own JDBC config ------------------------
+Run-Check "repo DB port (webapp config)" {
+    # The bundled PostgreSQL frequently listens on a NON-default port (5433 on
+    # this install); the only authoritative source is the webapp's own jdbc URL.
+    $webapp = Resolve-JrsWebappDir
+    if (-not $webapp) {
+        return @{ Status = "WARN"; Detail = "JRS webapp dir unknown; set `"jrsWebappDir`" in jrs.config.json. Bundled Postgres often listens on a non-default port such as 5433; do not assume 5432" }
+    }
+    if (-not (Test-Path $webapp -PathType Container)) {
+        return @{ Status = "WARN"; Detail = "webapp dir not found: $webapp (set `"jrsWebappDir`"). Bundled Postgres often listens on a non-default port such as 5433; do not assume 5432" }
+    }
+    $url = $null; $src = $null
+    $ctx = Join-Path $webapp "META-INF/context.xml"
+    $props = Join-Path $webapp "WEB-INF/js.jdbc.properties"
+    if (Test-Path $ctx) {
+        $m = [regex]::Match((Get-Content $ctx -Raw), '(?i)url\s*=\s*"([^"]+)"')
+        if ($m.Success) { $url = $m.Groups[1].Value; $src = "META-INF/context.xml" }
+    }
+    if (-not $url -and (Test-Path $props)) {
+        $m = [regex]::Match((Get-Content $props -Raw), '(?im)^\s*metadata\.jdbc\.url\s*=\s*(\S+)')
+        if ($m.Success) { $url = $m.Groups[1].Value.Trim(); $src = "WEB-INF/js.jdbc.properties" }
+    }
+    if (-not $url) {
+        return @{ Status = "WARN"; Detail = "no jdbc url in $ctx or $props. Bundled Postgres often listens on a non-default port such as 5433; do not assume 5432" }
+    }
+    # jdbc:postgresql://host:port/db  (port optional -> driver default 5432)
+    $u = [regex]::Match($url, '(?i)jdbc:(\w+)://([^:/?]+)(?::(\d+))?/([^?;]+)')
+    if (-not $u.Success) {
+        return @{ Status = "WARN"; Detail = "unparsed jdbc url in ${src}: $url" }
+    }
+    $aHost = $u.Groups[2].Value
+    $aPort = if ($u.Groups[3].Value) { [int]$u.Groups[3].Value } else { 5432 }
+    $aDb   = $u.Groups[4].Value
+    $detail = "$src -> ${aHost}:${aPort}/$aDb (bundled Postgres often listens on a non-default port such as 5433; do not assume 5432)"
+    $cfgObj = Get-DoctorConfig
+    $repo = if ($cfgObj) { $cfgObj.repoDb } else { $null }
+    if ($repo) {
+        $cPort = if ($repo.port) { [int]$repo.port } else { 5433 }
+        $cHost = if ($repo.host) { [string]$repo.host } else { "localhost" }
+        $cDb   = if ($repo.database) { [string]$repo.database } else { "jasperserver" }
+        if ($cPort -ne $aPort -or $cDb -ne $aDb) {
+            return @{ Status = "WARN"; Detail = "jrs.config.json repoDb says ${cHost}:${cPort}/$cDb but $src says ${aHost}:${aPort}/$aDb -- fix repoDb.port/database or report_usage.ps1 reads the wrong DB. $detail" }
+        }
+        $detail += "; repoDb agrees"
+    } else {
+        $detail += "; add `"repoDb`": {`"port`": $aPort, `"database`": `"$aDb`"} to jrs.config.json"
+    }
+    return @{ Status = "PASS"; Detail = $detail }
+}
+
+# --- 5c. Environment profiles reachable ---------------------------------------
+$envProfiles = @()
+$cfgForEnv = Get-DoctorConfig
+if ($cfgForEnv -and $cfgForEnv.PSObject.Properties.Name -contains 'environments' -and $cfgForEnv.environments) {
+    $envProfiles = @($cfgForEnv.environments.PSObject.Properties.Name)
+}
+if ($envProfiles.Count -eq 0) {
+    Check "environment profiles" "PASS" "none defined in jrs.config.json (single-server setup)"
+}
+foreach ($envName in $envProfiles) {
+    Run-Check "env profile '$envName'" {
+        $p = $cfgForEnv.environments.$envName
+        # profile keys shadow top-level keys; a missing key falls through
+        $pick = { param($k) if ($p.PSObject.Properties.Name -contains $k -and $p.$k) { $p.$k } elseif ($cfgForEnv.PSObject.Properties.Name -contains $k) { $cfgForEnv.$k } else { $null } }
+        $eUrl = (& $pick 'serverUrl'); $eUser = (& $pick 'user'); $ePass = (& $pick 'password')
+        if (-not $ePass) {
+            $pc = (& $pick 'passwordCommand')
+            if ($pc) { try { $ePass = (Invoke-Expression $pc | Out-String).Trim() } catch {} }
+        }
+        if (-not $eUrl) { return @{ Status = "WARN"; Detail = "no serverUrl resolvable for this profile" } }
+        $eUrl = ([string]$eUrl).TrimEnd('/')
+        $url = "$eUrl/rest_v2/serverInfo"
+        $curlArgs = @('-s', '-S', '--connect-timeout', '8', '-m', '20', '-w', "`n%{http_code}", '-H', 'Accept: application/json')
+        if ($eUser) { $curlArgs += @('-u', "${eUser}:${ePass}") }
+        $resp = & (Get-JrsCurl) @curlArgs $url 2>&1
+        $lines = "$($resp -join "`n")" -split "`n"
+        $code = $lines[-1].Trim()
+        $body = if ($lines.Length -ge 2) { ($lines[0..($lines.Length - 2)] -join "`n") } else { "" }
+        if ($code -ne "200") {
+            $why = if ($code -match '^\d{3}$') { "HTTP $code" } else { "no response ($("$body $code".Trim()))" }
+            return @{ Status = "WARN"; Detail = "$eUrl unreachable: $why -- promote.ps1 -ToEnv $envName will fail" }
+        }
+        $ver = ""; $ed = ""
+        try { $j = $body | ConvertFrom-Json; $ver = $j.version; $ed = $j.edition } catch {}
+        $d = "$eUrl (HTTP 200"
+        if ($ver) { $d += ", version $ver" }
+        if ($ed)  { $d += " $ed" }
+        return @{ Status = "PASS"; Detail = ($d + ")") }
+    }
 }
 
 # --- 6. Python + analysis libs -------------------------------------------------

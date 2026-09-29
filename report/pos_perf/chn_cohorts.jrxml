@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Retention and Churn console: the share of each acquisition cohort still
+     active, by month since first purchase. Two series, one per cohort year.
+
+     THIS TILE IS LIFETIME SCOPED, BY DESIGN, AND THAT IS ENFORCED BY ITS QUERY,
+     NOT BY ITS PARAMETER LIST. A retention curve is a lifetime measurement of a
+     fixed cohort: filtering it by risk band or loyalty tier would reshape the
+     very population whose survival is being tracked, and the score date is a
+     scoring cutoff rather than a cohort boundary, so none of the four console
+     controls has a defined meaning here.
+
+     So the four console parameters ARE declared below, exactly as on the other
+     five tiles, and are then referenced NOWHERE: not in the query, not in an
+     expression, not in a printWhenExpression. The tile's output is therefore
+     identical whatever the strip has selected. This is the same shape Phase 1
+     used for trs_liability and trs_lease_expiry, both of which declare the full
+     console parameter set and then ignore the parts their SQL has no column for.
+
+     The declarations are NOT optional decoration. gen_dashboard.py hands every
+     report dashlet the whole "filters" array as its input parameters and wires
+     every control to every report dashlet's @applyParams, with no check that the
+     tile declares the name. A tile with no parameter block would still be handed
+     all four values; declaring them gives that blind wiring somewhere to land.
+
+     No input controls are attached to this tile (no Attach-ChurnControls call),
+     which is correct and sufficient: a declared parameter that nothing reads
+     needs no control to populate it, and an unattached parameter is never
+     prompted. Verified after the change by GET on the report unit
+     (hasInputControls = False) and by recomposing and re-rendering the tile.
+
+     NO ZERO GUARD ON THE SERIES VALUE, AND THAT IS DELIBERATE. The console rule
+     is that a null on the first row fails to register a series and shifts the
+     seriesColor bindings, so chart values are normally coalesced to zero. Here
+     active_pct cannot be null: the upstream build already wraps the divide in
+     NULLIF, and a row only exists in the cohort aggregate when the cell has at
+     least one customer in it, so the denominator is never zero and never absent.
+     A guard here would be dead code that a later reader would have to reason
+     about, so the reasoning is written down instead. The series and category
+     keys are still derived with String.valueOf, which is null safe in its own
+     right, and the query's ORDER BY cohort_year fixes the registration order so
+     2019 binds to seriesColor order 0 and 2020 to order 1.
+
+     The 2020 cohort is a partial year and only has months 0 to 11 in the source,
+     so its line legitimately stops short of the 2019 line rather than dropping
+     to zero.
+
+     JR7 native line plot: showLines/showShapes are the valid flags on a line
+     plot (showTickMarks/showTickLabels are REJECTED there per
+     jr7-valid-elements.md 3d). Chart is in the title band, so
+     evaluationTime="Report". -->
+<jasperReport name="chn_cohorts" language="java" pageWidth="1000" pageHeight="380" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="chn_score_date" class="java.util.Collection"/>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="chn_tier" class="java.util.Collection"/>
+	<parameter name="chn_band" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT cohort_year, months_since_first, active_pct
+FROM dash_cohort
+WHERE months_since_first BETWEEN 0 AND 18
+ORDER BY cohort_year, months_since_first
+	]]></query>
+
+	<field name="cohort_year" class="java.lang.Integer"/>
+	<field name="months_since_first" class="java.lang.Integer"/>
+	<field name="active_pct" class="java.math.BigDecimal"/>
+
+	<title height="360">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="980" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Active Share by Months Since First Purchase]]></text></element>
+		<element kind="staticText" x="0" y="26" width="980" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[2019 vs 2020 acquisition cohorts. Months since first purchase along the bottom, active share up the side.]]></text></element>
+
+		<element kind="chart" chartType="line" x="0" y="48" width="980" height="312" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA[String.valueOf($F{cohort_year})]]></seriesExpression>
+					<categoryExpression><![CDATA[String.valueOf($F{months_since_first})]]></categoryExpression>
+					<valueExpression><![CDATA[$F{active_pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showLines="true" showShapes="true" valueAxisTickLabelMask="#,##0'%'">
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#1DB6C0"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

@@ -197,6 +197,118 @@ Full details in `RUNBOOK.md` §3 and `plugins/jasper-deploy/skills/jasper-deploy
 
 ---
 
+## POS performance dashboards (report/pos_perf)
+
+Ten dashboards and nine paginated reports on JasperReports Server, fed by
+`robert.gorsuch` on the pos_data Avalanche warehouse through
+`/datasources/pos_data_avalanche`. This is the full suite scoped in
+`specs/2026-08-23-pos-suite-design.md` -- all 7 planned dashboards (4-10) plus
+the 3 pre-existing ones, and all 9 planned paginated reports. The
+unnumbered, explicitly optional Retention Story deck was never one of the 7
+and the user chose not to build it; no further phase is planned.
+
+| Dashboard | URI | Manifest |
+|---|---|---|
+| POS Executive Overview | /reports/pos_perf/pos_executive_overview | report/pos_perf/exec_dashboard.json |
+| POS Operations Console | /reports/pos_perf/pos_operations_console | report/pos_perf/ops_dashboard.json |
+| POS Promo and Margin Story | /reports/pos_perf/pos_promo_story | report/pos_perf/story_dashboard.json |
+| POS Store Profit and Budget | /reports/pos_perf/pos_store_pnl | report/pos_perf/pnl_dashboard.json |
+| POS Franchise Treasury | /reports/pos_perf/pos_treasury | report/pos_perf/trs_dashboard.json |
+| POS Retention and Churn | /reports/pos_perf/pos_retention_churn | report/pos_perf/chn_dashboard.json |
+| POS Supply and Inventory | /reports/pos_perf/pos_supply_inventory | report/pos_perf/sup_dashboard.json |
+| POS Workforce and Labour | /reports/pos_perf/pos_workforce_labour | report/pos_perf/lab_dashboard.json |
+| POS Store Network | /reports/pos_perf/pos_store_network | report/pos_perf/net_dashboard.json |
+| POS Marketing and Digital | /reports/pos_perf/pos_marketing_digital | report/pos_perf/mkt_dashboard.json |
+
+| Report | URI | Reached from |
+|---|---|---|
+| Store P and L Statement | /reports/pos_perf/rpt_store_pnl_statement | pnl_worst_stores tile |
+| Franchise Receivables Aging | /reports/pos_perf/rpt_ar_aging | trs_ar_aging tile |
+| Payables Aging and Payment Run | /reports/pos_perf/rpt_ap_aging | trs_dpo tile |
+| Sales Tax Remittance | /reports/pos_perf/rpt_tax_remittance | trs_tax_province tile |
+| Churn Action List | /reports/pos_perf/rpt_churn_action_list | chn_actions tile |
+| Inventory Reorder List | /reports/pos_perf/rpt_inventory_reorder | standalone |
+| Supplier Scorecard | /reports/pos_perf/rpt_supplier_scorecard | sup_scorecard tile |
+| Weekly Flash | /reports/pos_perf/rpt_weekly_flash | standalone |
+| Franchisee Fee Statement | /reports/pos_perf/rpt_franchisee_fee_statement | trs_kpi AR Outstanding chip |
+
+POS Store Network is a cockpit (no filter strip) of 5 tiles -- `net_map` (a
+JFreeChart bubble chart over `stores`/`competitor_locations`, longitude x
+latitude y, sales-per-sqft as bubble size, the map-technique substitute for
+the unavailable community `jr:map` component), `net_sqft_format`,
+`net_income_scatter`, `net_lease`, `net_exposed` -- reading `stores`,
+`competitor_locations`, `fsa_demographics` and `store_assets` directly, no new
+aggregate. POS Marketing and Digital is a cockpit of 5 tiles -- `mkt_kpi`,
+`mkt_funnel`, `mkt_ecom_share`, `mkt_campaign_roi`, `mkt_partners` -- over two
+new aggregates, `dash_email` (campaign x send-month grain, from
+`build_dash_email.sql`) and `dash_ecom_monthly` (month x delivery-partner
+grain, from `build_dash_ecom_monthly.sql`); `mkt_campaign_roi` ranks the top
+15 of 75 promotions with marketing subsidy >= $1,000 (a deliberate floor that
+excludes near-zero-division noise rows) and drills, at a fixed literal
+`p_week_ending="2020-11-08"`, to the Weekly Flash report regardless of which
+campaign bar was clicked. Franchisee Fee Statement is a new Statement-pattern
+report reached from a new hyperlink on `trs_kpi`'s AR Outstanding chip
+(always opens franchisee id 0 / Stella Martin, unscoped by design), filtered
+by a new `p_franchisee_id` control alongside the existing `p_yyyymm`.
+
+Supply and Inventory is a console (dashboard-level filter strip: Regions /
+Store / Category / Supplier, via `scripts/pos_perf/supply_controls.ps1`) over
+`inventory`, `purchase_orders`, `suppliers` and `shrinkage_log` read directly
+-- no new aggregate, same precedent as the Phase 1 AR/AP tiles. Workforce and
+Labour is a cockpit (no filter strip) over a new aggregate, `dash_labour`
+(store x calendar-date x shift grain, from `build_dash_labour.sql`), including
+a true JR7 crosstab heatmap (`lab_heatmap`) shading scheduled hours by
+sales-per-labour-hour. Weekly Flash is a standalone scorecard whose page 1
+(network KPIs vs prior week and a pro-rated monthly plan) and page 2
+(active-campaign detail) split by content height alone, no forced page break.
+
+Executive Overview and Promo Story render on a navy canvas (`#000032`); the
+other four are light. Franchise Treasury and Retention and Churn carry a
+dashboard-level filter strip (the manifest's `filters` key) over shared input
+controls under `/reports/pos_perf/controls/`; the Operations Console uses
+per-dashlet filter popups instead.
+
+Retention and Churn is filtered by `chn_score_date` / `p_regions` / `chn_tier`
+/ `chn_band`, all four of them multi-select query controls that arrive at a
+tile as a `java.util.Collection`. `p_regions` is the same control the Ops
+Console and Treasury boards already use; the three `chn_*` controls are created
+by `scripts/pos_perf/churn_controls.ps1`. A tile that needs a scalar score date
+for its SQL derives one internally with `.iterator().next()` rather than taking
+a second control, so the strip stays four widgets wide. Five of the six tiles
+carry all four controls; `chn_cohorts` carries none because a retention curve
+is a lifetime measurement of a fixed cohort, but it still declares all four
+parameters, because `gen_dashboard.py` wires every filter to every report
+dashlet whether the tile reads it or not.
+
+The first three dashboards read the precomputed `dash_*` aggregates built by
+`scripts/pos_perf/build_dash_aggregates.sql` (verify with
+`verify_dash_aggregates.sql`); the Treasury tender tile reads
+`dash_tender_monthly` from `build_dash_tender_monthly.sql`. The finance
+dashboards and reports read the base finance tables directly. Retention and
+Churn reads two more aggregates: `dash_churn` (customer grain, 3,184,743 rows,
+from `build_dash_churn.sql`) for five of its tiles and the Churn Action List,
+and `dash_cohort` (cohort-year by months-since-first grain, 36 rows, from
+`build_dash_cohort.sql`) for the retention curve. Each has a matching
+`verify_*.sql`. Margin basis on
+the `dash_*` aggregates: extended sales minus line cost, 31.6 pct across
+2019-2020 (see out/pos_perf/margin_basis_decision.md in a local build). The
+Store Profit board reports 33.7 pct on the same basis because it is scoped to
+2020 alone; 2019 is 29.2 pct and the two years together are 31.6 pct.
+
+`scripts/pos_perf/wobby_metric_crosscheck.py` reconciles the dashboard KPIs
+against the semantic layer's own metric expressions; as of 2026-08-25, 20
+metrics are checked (the original 11 finance metrics plus 9 Phase 4 growth
+metrics -- ecommerce revenue share, late fulfillment, satisfaction,
+email open/click/conversion rate, promotion ROI, subsidy cost per conversion,
+total campaign conversions). 19 of 20 agree exactly or within 0.5 pct;
+`ecommerce_revenue_share_pct` disagrees by 0.72 pct with a documented cause
+(the tile's denominator is `store_pnl_monthly.net_sales`, a store-month
+rollup, while Wobby's own denominator sums `ecommerce_orders.total_order_value
++ pos_sales_detail.total_sales` at the raw line level -- a different revenue
+base by construction, not a data error). Design:
+specs/2026-08-20-pos-sales-dashboards-design.md; suite roadmap:
+specs/2026-08-23-pos-suite-design.md.
+
 ## About
 
 Demos and artifacts for BI pipeline automation using **Jaspersoft** and **Claude Code Desktop**, built by the Actian SE team.
@@ -222,8 +334,17 @@ clone required. In any Claude Code session:
 |---|---|
 | `/jasper-deploy:doctor` | Preflight the toolchain + server connectivity — **run this first** |
 | `/jasper-deploy:deploy` | Scaffold/compile/deploy a report from SQL or a `.jrxml`, then verify it renders |
-| `/jasper-deploy:promote` | Promote a resource between environments (STAGE → PROD) with a target backup |
+| `/jasper-deploy:promote` | Promote a resource or a whole dashboard suite between environments (STAGE → PROD): plans by default, `-Apply` writes under a journaled, backed-up, self-rolling-back run |
 | `/jasper-deploy:smoke` | Full 24-step lifecycle regression test |
+
+**Safety model** (since [1.3.0](plugins/jasper-deploy/CHANGELOG.md), ported from
+[jrsctl](https://github.com/robertgorsuch/jrsctl)): `promote.ps1`, `compose_dashboard.ps1`,
+`teardown_dashboard.ps1` and `deploy_report.ps1 -Overwrite` print a plan and write
+nothing unless `-Apply` is passed; the gate is enforced inside the shared HTTP helpers,
+any write to a `prod*` profile needs `JRS_ALLOW_PROD_WRITE=1` set by a human, every
+apply run is journaled with per-step compensations (`recover_run.ps1 -RunId <id>
+-Rollback -Apply` undoes it), and `tests/harness.Tests.ps1` proves plan mode issues
+no writes by replaying a recorded server (`tests/mock_jrs.py`).
 
 **Verify:** the four commands above appear in your command list, and Claude
 picks the skill up automatically for JasperReports work — scaffolding jrxml

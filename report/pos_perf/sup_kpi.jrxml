@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Supply and Inventory console: 5-up KPI chip strip. Layout pattern mirrors
+     chn_kpi.jrxml / trs_kpi.jrxml / pnl_kpi_strip.jrxml (divider lines at the
+     cell boundaries, 13pt label / 26pt value, centered, evaluationTime="Report"
+     so the single result row is available in the title band).
+
+     FILTER CONTRACT shared by every tile of this console:
+
+       p_regions      multi select collection to $X{IN, storeregion, p_regions}
+       sup_store      multi select collection of store numbers
+       sup_category   multi select collection to $X{IN, category, sup_category}
+       sup_supplier   multi select collection to $X{IN, supplier_name, sup_supplier}
+
+     The parameter names are exactly the four input control resource names that
+     Attach SupplyControls attaches, because JasperReports Server binds an
+     attached input control to the report parameter whose name EQUALS the
+     control's resource name, and the dashboard composer emits
+     ownerResourceParameterName = the control name for every entry in the
+     manifest "filters" array. Renaming them would leave the strip inert.
+
+     STORE NUMBER IS COMPARED AS TEXT, DELIBERATELY. The sup_store control's
+     value column is VARCHAR(storenumber), so the collection this report
+     receives holds Strings, while storenumber is an INTEGER column in
+     inventory, purchase_orders and shrinkage_log alike. Every store predicate
+     here therefore casts the column with VARCHAR(...) so the prepared statement
+     compares text to text, using the identical expression the control's own
+     value column uses. Do not "simplify" this back to a bare storenumber.
+
+     THE SHRINK RATIO FILTERS BOTH OF ITS HALVES. Lost value and cost of goods
+     sold are two different tables, and the task brief's sketch narrowed only
+     the lost value half by store while leaving the cost of goods sold total at
+     network scope. Picked down to one store that renders as 0.00 percent, a
+     number that is not wrong by a rounding but wrong by two orders of
+     magnitude, because a single store's losses were being divided by every
+     store's cost. Both halves therefore carry the same sup_store predicate so
+     the ratio means the same thing at every filter depth. Neither half carries
+     the region predicate: the loss ledger has no region of its own, so
+     applying region to the denominator alone would reintroduce exactly the
+     mismatch this fixes. The chip's own sub line says the metric answers to
+     the store selection.
+
+     Every chip null guards its value (blankWhenNull): a narrow filter
+     combination can legitimately select no inventory rows, no purchase orders
+     or no shrink events.
+
+     Expected at defaults: 12.1% / 5.0% / 27.8 / 85.0% / 0.37%. -->
+<jasperReport name="sup_kpi" language="java" pageWidth="1600" pageHeight="130" columnWidth="1580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="sup_store" class="java.util.Collection"/>
+	<parameter name="sup_category" class="java.util.Collection"/>
+	<parameter name="sup_supplier" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT DECIMAL(100.0 * FLOAT8(COUNT(CASE WHEN stock_status = 'Out of Stock' THEN 1 END)) / FLOAT8(NULLIF(COUNT(*), 0)), 6, 2) AS oos_pct,
+       DECIMAL(100.0 * FLOAT8(COUNT(CASE WHEN stock_status = 'Overstock' THEN 1 END)) / FLOAT8(NULLIF(COUNT(*), 0)), 6, 2) AS overstock_pct,
+       DECIMAL(AVG(days_of_supply), 8, 2) AS avg_days_of_supply,
+       (SELECT DECIMAL(100.0 * FLOAT8(COUNT(CASE WHEN po.on_time = 'Y' THEN 1 END)) / FLOAT8(NULLIF(COUNT(*), 0)), 6, 2)
+        FROM purchase_orders po WHERE ($X{IN, VARCHAR(po.storenumber), sup_store})) AS on_time_pct,
+       (SELECT DECIMAL(100.0 * FLOAT8(SUM(sl.shrink_value)) / FLOAT8(NULLIF((SELECT SUM(p.cogs) FROM store_pnl_monthly p
+              WHERE ($X{IN, VARCHAR(p.storenumber), sup_store})), 0)), 6, 4)
+        FROM shrinkage_log sl WHERE ($X{IN, VARCHAR(sl.storenumber), sup_store})) AS shrink_pct_cogs
+FROM inventory
+WHERE ($X{IN, storeregion, p_regions})
+  AND ($X{IN, VARCHAR(storenumber), sup_store})
+  AND ($X{IN, category, sup_category})
+  AND ($X{IN, supplier_name, sup_supplier})
+	]]></query>
+
+	<field name="oos_pct" class="java.math.BigDecimal"/>
+	<field name="overstock_pct" class="java.math.BigDecimal"/>
+	<field name="avg_days_of_supply" class="java.math.BigDecimal"/>
+	<field name="on_time_pct" class="java.math.BigDecimal"/>
+	<field name="shrink_pct_cogs" class="java.math.BigDecimal"/>
+
+	<title height="110">
+		<element kind="staticText" x="10" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Out of Stock]]></text></element>
+		<element kind="textField" x="10" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{oos_pct}]]></expression></element>
+		<element kind="staticText" x="10" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[share of tracked items with no cover]]></text></element>
+
+		<element kind="line" x="316" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="326" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Overstock]]></text></element>
+		<element kind="textField" x="326" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{overstock_pct}]]></expression></element>
+		<element kind="staticText" x="326" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[share sitting above target cover]]></text></element>
+
+		<element kind="line" x="632" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="642" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Avg Days of Supply]]></text></element>
+		<element kind="textField" x="642" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{avg_days_of_supply}]]></expression></element>
+		<element kind="staticText" x="642" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[days of cover at the current sell rate]]></text></element>
+
+		<element kind="line" x="948" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="958" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Supplier On-Time]]></text></element>
+		<element kind="textField" x="958" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{on_time_pct}]]></expression></element>
+		<element kind="staticText" x="958" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[replenishment received on schedule]]></text></element>
+
+		<element kind="line" x="1264" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="1274" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Shrink pct of COGS]]></text></element>
+		<element kind="textField" x="1274" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.00'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{shrink_pct_cogs}]]></expression></element>
+		<element kind="staticText" x="1274" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[lost value against cost of goods sold]]></text></element>
+
+		<element kind="staticText" x="10" y="88" width="1564" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Network supply position. Supplier on-time and shrink respond to the store filter only.]]></text></element>
+	</title>
+
+</jasperReport>

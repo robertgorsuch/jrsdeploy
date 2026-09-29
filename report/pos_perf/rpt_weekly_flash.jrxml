@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Weekly Flash: a standalone, scheduled-weekly network scorecard. No drill
+     source in this suite - launched directly from JRS.
+
+     PAGE SPLIT TECHNIQUE (no artificial break element used): the title band
+     carries the ENTIRE page-1 flash summary (KPI strip, vs-prior-week and
+     vs-plan variance lines, the pro-ration disclosure, and a comparison
+     chart) and is sized to 750 of the page's 782 usable px (the JR7 design
+     validator caps title+columnHeader+margins at pageHeight, so 762 is the
+     hard ceiling for this page geometry; 750 leaves headroom). The 32px left
+     on page 1 fits the columnHeader (20px) but not a single detail row
+     (18px more), so the header prints alone at the foot of page 1 and every
+     campaign row flows to page 2 as an ordinary consequence of band height -
+     not a forced page-break element, just content that does not fit.
+
+     DATASET SHAPE: the main query returns one row per active campaign
+     (marketing_campaigns, driving the page-2 table), cross-joined to a
+     single-row network-KPI subquery so the same KPI values repeat on every
+     campaign row. The page-1 KPI textFields read those repeated values with
+     evaluationTime="Report" (same technique rpt_store_pnl_statement uses to
+     read a field "from the title band"), which resolves to the LAST record's
+     field values once the whole report has executed. KNOWN LIMITATION: on a
+     week with zero active campaigns, the query returns zero rows and the
+     page-1 KPI fields have nothing to source a Report-time value from, so
+     they render blank rather than erroring; whenNoDataType="AllSectionsNoDetail"
+     keeps the bands themselves present. Every week checked this session
+     (H2 2020) has at least one active campaign, so this is a documented edge
+     case, not something exercised for the shipped default.
+
+     WEEKLY-PLAN PRO-RATION: target_sales (sales_targets, monthly grain) times
+     the count of report-week days falling in that month, divided by the
+     count of days in that month, summed across every month the report week
+     touches - computed as nested derived tables (mo, ml) joined to
+     sales_targets, NOT a WITH clause: a WITH used as a derived table inside a
+     FROM clause fails on this X100 install with "Table 'with' does not exist"
+     (confirmed this session), even though a top-level WITH ... SELECT works
+     fine elsewhere in this suite's standalone .sql build scripts. Verified
+     for the default week (2020-11-02 to 2020-11-08, entirely inside
+     yyyymm=202011): plan_sales 8,467,314.02, hand-checked as
+     target_sales_202011 * 7 / 30.
+
+     JR7-native throughout: <query language="SQL">, <element kind="...">, a
+     single-category multi-series bar chart (one category "Net Sales", three
+     series This Week/Prior Week/Plan) to compare three scalars from one row
+     without a subDataset. Variance colour is the established two-overlapping-
+     textFields-with-printWhenExpression pattern; percent divides by
+     ABS(denominator) so favourable is always positive, matching
+     rpt_store_pnl_statement's documented reasoning. -->
+<jasperReport name="rpt_weekly_flash" language="java" pageWidth="595" pageHeight="842" orientation="Portrait" columnWidth="535" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" whenNoDataType="AllSectionsNoDetail">
+
+	<style name="kpi_label" fontSize="10.0" forecolor="#5B7DA6"/>
+	<style name="kpi_value" fontSize="20.0" bold="true" forecolor="#1F4E79"/>
+	<style name="var_label" fontSize="10.0" forecolor="#1F4E79"/>
+
+	<parameter name="p_week_ending" class="java.lang.String"><defaultValueExpression><![CDATA["2020-11-08"]]></defaultValueExpression></parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT mc.campaign_name,
+       DECIMAL(mc.budget_subsidy, 12, 2) AS subsidy_cost,
+       mc.recipients_converted AS conversions,
+       DECIMAL(mc.subsidy_per_conversion, 10, 2) AS cost_per_conversion,
+       kpi.week_sales, kpi.week_transactions, kpi.week_conversion_pct,
+       kpi.prior_week_sales, kpi.prior_week_transactions, kpi.plan_sales
+FROM marketing_campaigns mc,
+     (
+       SELECT
+         DECIMAL(SUM(t.sales), 14, 2) AS week_sales,
+         DECIMAL(SUM(t.transactions), 10, 0) AS week_transactions,
+         DECIMAL(AVG(t.conversion_pct), 6, 2) AS week_conversion_pct,
+         (SELECT DECIMAL(SUM(t2.sales), 14, 2) FROM store_traffic t2 WHERE t2.traffic_date BETWEEN DATE($P{p_week_ending}) - 13 AND DATE($P{p_week_ending}) - 7) AS prior_week_sales,
+         (SELECT DECIMAL(SUM(t2.transactions), 10, 0) FROM store_traffic t2 WHERE t2.traffic_date BETWEEN DATE($P{p_week_ending}) - 13 AND DATE($P{p_week_ending}) - 7) AS prior_week_transactions,
+         (SELECT DECIMAL(SUM(FLOAT8(st.target_sales) * FLOAT8(mo.overlap_days) / FLOAT8(ml.days_in_month)), 14, 2)
+          FROM (SELECT yyyymm, COUNT(*) AS overlap_days FROM date_dim WHERE calendar_date BETWEEN DATE($P{p_week_ending}) - 6 AND DATE($P{p_week_ending}) GROUP BY yyyymm) mo
+          JOIN (SELECT yyyymm, COUNT(*) AS days_in_month FROM date_dim GROUP BY yyyymm) ml ON ml.yyyymm = mo.yyyymm
+          JOIN sales_targets st ON st.yyyymm = mo.yyyymm
+         ) AS plan_sales
+       FROM store_traffic t
+       WHERE t.traffic_date BETWEEN DATE($P{p_week_ending}) - 6 AND DATE($P{p_week_ending})
+     ) kpi
+WHERE mc.start_date <= DATE($P{p_week_ending}) AND (mc.end_date IS NULL OR mc.end_date >= DATE($P{p_week_ending}) - 6)
+ORDER BY mc.recipients_converted DESC
+	]]></query>
+
+	<field name="campaign_name" class="java.lang.String"/>
+	<field name="subsidy_cost" class="java.math.BigDecimal"/>
+	<field name="conversions" class="java.lang.Integer"/>
+	<field name="cost_per_conversion" class="java.math.BigDecimal"/>
+	<field name="week_sales" class="java.math.BigDecimal"/>
+	<field name="week_transactions" class="java.math.BigDecimal"/>
+	<field name="week_conversion_pct" class="java.math.BigDecimal"/>
+	<field name="prior_week_sales" class="java.math.BigDecimal"/>
+	<field name="prior_week_transactions" class="java.math.BigDecimal"/>
+	<field name="plan_sales" class="java.math.BigDecimal"/>
+
+	<title height="750">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="535" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Weekly Flash]]></text></element>
+		<element kind="textField" x="0" y="26" width="535" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["Week ending " + $P{p_week_ending}]]></expression>
+		</element>
+		<element kind="line" x="0" y="50" width="535" height="1" forecolor="#D6E0EF"/>
+
+		<element kind="staticText" x="0" y="62" width="535" height="16" fontSize="11.0" bold="true" forecolor="#1F4E79"><text><![CDATA[Network Performance]]></text></element>
+
+		<element kind="staticText" style="kpi_label" x="0" y="84" width="178" height="16"><text><![CDATA[Week Net Sales]]></text></element>
+		<element kind="staticText" style="kpi_label" x="179" y="84" width="178" height="16"><text><![CDATA[Week Transactions]]></text></element>
+		<element kind="staticText" style="kpi_label" x="358" y="84" width="177" height="16"><text><![CDATA[Avg Daily Conversion]]></text></element>
+		<element kind="textField" style="kpi_value" x="0" y="102" width="178" height="32" pattern="$#,##0" evaluationTime="Report"><expression><![CDATA[$F{week_sales}]]></expression></element>
+		<element kind="textField" style="kpi_value" x="179" y="102" width="178" height="32" pattern="#,##0" evaluationTime="Report"><expression><![CDATA[$F{week_transactions}]]></expression></element>
+		<element kind="textField" style="kpi_value" x="358" y="102" width="177" height="32" pattern="#,##0.0'%'" evaluationTime="Report"><expression><![CDATA[$F{week_conversion_pct}]]></expression></element>
+
+		<element kind="line" x="0" y="140" width="535" height="1" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="0" y="152" width="535" height="16" fontSize="11.0" bold="true" forecolor="#1F4E79"><text><![CDATA[Variance]]></text></element>
+
+		<!-- Net sales vs prior week -->
+		<element kind="staticText" style="var_label" x="0" y="176" width="250" height="20" vTextAlign="Middle"><text><![CDATA[Net Sales vs Prior Week]]></text></element>
+		<element kind="textField" x="250" y="176" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#5CB85C" pattern="$#,##0;($#,##0)" evaluationTime="Report">
+			<expression><![CDATA[$F{week_sales}.subtract($F{prior_week_sales})]]></expression>
+			<printWhenExpression><![CDATA[$F{week_sales}.subtract($F{prior_week_sales}).signum() >= 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="250" y="176" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#D9534F" pattern="$#,##0;($#,##0)" evaluationTime="Report">
+			<expression><![CDATA[$F{week_sales}.subtract($F{prior_week_sales})]]></expression>
+			<printWhenExpression><![CDATA[$F{week_sales}.subtract($F{prior_week_sales}).signum() < 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="395" y="176" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#5CB85C" pattern="#,##0.0'%'" evaluationTime="Report">
+			<expression><![CDATA[100.0 * $F{week_sales}.subtract($F{prior_week_sales}).doubleValue() / Math.abs($F{prior_week_sales}.doubleValue())]]></expression>
+			<printWhenExpression><![CDATA[$F{week_sales}.subtract($F{prior_week_sales}).signum() >= 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="395" y="176" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#D9534F" pattern="#,##0.0'%'" evaluationTime="Report">
+			<expression><![CDATA[100.0 * $F{week_sales}.subtract($F{prior_week_sales}).doubleValue() / Math.abs($F{prior_week_sales}.doubleValue())]]></expression>
+			<printWhenExpression><![CDATA[$F{week_sales}.subtract($F{prior_week_sales}).signum() < 0]]></printWhenExpression>
+		</element>
+
+		<!-- Net sales vs plan (pro-rated) -->
+		<element kind="staticText" style="var_label" x="0" y="200" width="250" height="20" vTextAlign="Middle"><text><![CDATA[Net Sales vs Plan (pro-rated)]]></text></element>
+		<element kind="textField" x="250" y="200" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#5CB85C" pattern="$#,##0;($#,##0)" evaluationTime="Report">
+			<expression><![CDATA[$F{week_sales}.subtract($F{plan_sales})]]></expression>
+			<printWhenExpression><![CDATA[$F{week_sales}.subtract($F{plan_sales}).signum() >= 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="250" y="200" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#D9534F" pattern="$#,##0;($#,##0)" evaluationTime="Report">
+			<expression><![CDATA[$F{week_sales}.subtract($F{plan_sales})]]></expression>
+			<printWhenExpression><![CDATA[$F{week_sales}.subtract($F{plan_sales}).signum() < 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="395" y="200" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#5CB85C" pattern="#,##0.0'%'" evaluationTime="Report">
+			<expression><![CDATA[100.0 * $F{week_sales}.subtract($F{plan_sales}).doubleValue() / Math.abs($F{plan_sales}.doubleValue())]]></expression>
+			<printWhenExpression><![CDATA[$F{week_sales}.subtract($F{plan_sales}).signum() >= 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="395" y="200" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#D9534F" pattern="#,##0.0'%'" evaluationTime="Report">
+			<expression><![CDATA[100.0 * $F{week_sales}.subtract($F{plan_sales}).doubleValue() / Math.abs($F{plan_sales}.doubleValue())]]></expression>
+			<printWhenExpression><![CDATA[$F{week_sales}.subtract($F{plan_sales}).signum() < 0]]></printWhenExpression>
+		</element>
+
+		<!-- Transactions vs prior week -->
+		<element kind="staticText" style="var_label" x="0" y="224" width="250" height="20" vTextAlign="Middle"><text><![CDATA[Transactions vs Prior Week]]></text></element>
+		<element kind="textField" x="250" y="224" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#5CB85C" pattern="#,##0;(#,##0)" evaluationTime="Report">
+			<expression><![CDATA[$F{week_transactions}.subtract($F{prior_week_transactions})]]></expression>
+			<printWhenExpression><![CDATA[$F{week_transactions}.subtract($F{prior_week_transactions}).signum() >= 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="250" y="224" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#D9534F" pattern="#,##0;(#,##0)" evaluationTime="Report">
+			<expression><![CDATA[$F{week_transactions}.subtract($F{prior_week_transactions})]]></expression>
+			<printWhenExpression><![CDATA[$F{week_transactions}.subtract($F{prior_week_transactions}).signum() < 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="395" y="224" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#5CB85C" pattern="#,##0.0'%'" evaluationTime="Report">
+			<expression><![CDATA[100.0 * $F{week_transactions}.subtract($F{prior_week_transactions}).doubleValue() / Math.abs($F{prior_week_transactions}.doubleValue())]]></expression>
+			<printWhenExpression><![CDATA[$F{week_transactions}.subtract($F{prior_week_transactions}).signum() >= 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="395" y="224" width="140" height="20" hTextAlign="Right" vTextAlign="Middle" fontSize="10.0" forecolor="#D9534F" pattern="#,##0.0'%'" evaluationTime="Report">
+			<expression><![CDATA[100.0 * $F{week_transactions}.subtract($F{prior_week_transactions}).doubleValue() / Math.abs($F{prior_week_transactions}.doubleValue())]]></expression>
+			<printWhenExpression><![CDATA[$F{week_transactions}.subtract($F{prior_week_transactions}).signum() < 0]]></printWhenExpression>
+		</element>
+
+		<element kind="line" x="0" y="252" width="535" height="1" forecolor="#D6E0EF"/>
+		<element kind="textField" x="0" y="258" width="535" height="28" fontSize="8.0" italic="true" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["Weekly plan is the monthly target pro-rated by the number of report-week days falling in each month."]]></expression>
+		</element>
+
+		<element kind="staticText" x="0" y="292" width="535" height="16" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Net Sales: This Week vs Prior Week vs Plan (CAD)]]></text></element>
+		<element kind="chart" chartType="bar" x="0" y="310" width="535" height="380" showLegend="true" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["This Week"]]></seriesExpression>
+					<categoryExpression><![CDATA["Net Sales"]]></categoryExpression>
+					<valueExpression><![CDATA[$F{week_sales}]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Prior Week"]]></seriesExpression>
+					<categoryExpression><![CDATA["Net Sales"]]></categoryExpression>
+					<valueExpression><![CDATA[$F{prior_week_sales}]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Plan"]]></seriesExpression>
+					<categoryExpression><![CDATA["Net Sales"]]></categoryExpression>
+					<valueExpression><![CDATA[$F{plan_sales}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" showLabels="false">
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#1DB6C0"/>
+				<seriesColor order="2" color="#0A4CAD"/>
+			</plot>
+		</element>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="535" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="6" y="0" width="185" height="20" fontSize="9.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Campaign]]></text></element>
+		<element kind="staticText" x="191" y="0" width="115" height="20" fontSize="9.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Subsidy Cost]]></text></element>
+		<element kind="staticText" x="306" y="0" width="105" height="20" fontSize="9.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Conversions]]></text></element>
+		<element kind="staticText" x="411" y="0" width="124" height="20" fontSize="9.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Cost / Conversion]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="18">
+			<element kind="rectangle" x="0" y="0" width="535" height="18" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" x="6" y="0" width="185" height="18" fontSize="9.0" forecolor="#1F4E79" vTextAlign="Middle"><expression><![CDATA[$F{campaign_name}]]></expression></element>
+			<element kind="textField" x="191" y="0" width="115" height="18" fontSize="9.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00"><expression><![CDATA[$F{subsidy_cost}]]></expression></element>
+			<element kind="textField" x="306" y="0" width="105" height="18" fontSize="9.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0"><expression><![CDATA[$F{conversions}]]></expression></element>
+			<element kind="textField" x="411" y="0" width="124" height="18" fontSize="9.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00" blankWhenNull="true"><expression><![CDATA[$F{cost_per_conversion}]]></expression></element>
+		</band>
+	</detail>
+
+	<summary height="20">
+		<element kind="staticText" x="0" y="0" width="535" height="16" fontSize="8.0" italic="true" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Active campaigns overlapping the report week, ranked by conversions]]></text></element>
+	</summary>
+
+</jasperReport>

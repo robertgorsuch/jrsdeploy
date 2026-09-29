@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Operations Console: monthly Gross Margin % trend, filtered by the shared
+     p_from/p_to/p_regions/p_promo/p_period controls. CORRECTED MARGIN BASIS
+     (Task 2 ruling): margin% = (sales_ext - cost_line) / NULLIF(sales_ext,0) *
+     100. cost_line = SUM(cost) (already line-extended); cost_ext would be
+     SUM(cost*quantity), a double-multiplication that produces a large
+     *negative* margin - never used here. Same line-chart pattern as
+     ops_sales_trend.jrxml / exec_trend.jrxml. -->
+<jasperReport name="ops_margin_trend" language="java" pageWidth="1000" pageHeight="220" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_from" class="java.util.Date">
+		<defaultValueExpression><![CDATA[new java.text.SimpleDateFormat("yyyy-MM-dd").parse("2019-01-01")]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_to" class="java.util.Date">
+		<defaultValueExpression><![CDATA[new java.text.SimpleDateFormat("yyyy-MM-dd").parse("2020-12-31")]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_promo" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_period" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT yr, mo, (SUM(sales_ext)-SUM(cost_line))/NULLIF(SUM(sales_ext),0)*100 AS margin_pct
+FROM dash_monthly
+WHERE (yr*100+mo) BETWEEN YEAR($P{p_from})*100+MONTH($P{p_from}) AND YEAR($P{p_to})*100+MONTH($P{p_to})
+  AND $X{IN, storeregion, p_regions}
+  AND ($P{p_promo} = 'All' OR ($P{p_promo} = 'NONE' AND promotiontype = '') OR promotiontype = $P{p_promo})
+  AND ($P{p_period} = 'All' OR pandemic_period = $P{p_period})
+GROUP BY 1,2 ORDER BY 1,2
+	]]></query>
+
+	<field name="yr" class="java.lang.Integer"/>
+	<field name="mo" class="java.lang.Integer"/>
+	<field name="margin_pct" class="java.math.BigDecimal"/>
+
+	<title height="40">
+		<element kind="image" x="0" y="0" width="36" height="36" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="980" height="22" fontSize="14.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Gross Margin Trend]]></text></element>
+		<element kind="staticText" x="0" y="23" width="980" height="12" fontSize="8.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Monthly gross margin % for the selected date range, region, promotion, and period]]></text></element>
+	</title>
+
+	<summary height="160">
+		<element kind="chart" chartType="line" x="0" y="0" width="980" height="160" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Gross Margin %"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{yr} + "-" + ($F{mo} < 10 ? "0" + $F{mo} : "" + $F{mo})]]></categoryExpression>
+					<valueExpression><![CDATA[$F{margin_pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showLines="true" showShapes="true" categoryAxisTickLabelRotation="-45">
+				<seriesColor order="0" color="#1DB6C0"/>
+			</plot>
+		</element>
+	</summary>
+
+</jasperReport>

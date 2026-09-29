@@ -1,0 +1,321 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Franchise Receivables Aging: the paginated drill target behind the
+     Receivables Aging tile on the Franchise Treasury console. Every unpaid
+     franchise-fee invoice up to the as-of month, grouped by franchisee, with a
+     per-bucket subtotal under each franchisee and a franchisee x bucket matrix
+     in the summary.
+
+     PARAMETERS - p_asof is a yyyymm String (the shared LOV control), p_regions
+     and p_franchisee are java.util.Collection so the shared multi-select
+     controls feed $X{IN, ...}. An empty or absent collection makes $X{IN}
+     expand to a no-op TRUE, so the report runs unfiltered by default.
+
+     DESIGN NOTES:
+
+     1. "Paid" is a mandated column (the brief names Store | Invoice | Month |
+        Due | Bucket | Invoiced | Paid | Balance | Days overdue) and it is
+        0.00 on every row by construction: the query keeps only status <>
+        'Paid', and the ledger books the settled amount only when the invoice
+        is settled, so an unsettled invoice has nothing against it and its
+        balance always equals the invoiced amount. The column is kept for
+        statement completeness, so a reader can see that no part payment has
+        been applied.
+
+     2. The summary crosstab orders its columns by the CASE rank the query
+        already computes (bucket_ord), NOT by the bucket label. A crosstab
+        bucket sorts on its own value, so bucketing on the label would print
+        1-30 days / 31-60 days / 60+ days / Current alphabetically, i.e. with
+        Current stranded at the far right. Bucketing on the Integer rank sorts
+        Current -> 1-30 -> 31-60 -> 60+ and the column header maps the rank
+        back to its label. This avoids needing a comparatorExpression.
+
+     3. The "Aged 60+ days" total is the second tile of the summary KPI strip
+        and is fed by $V{rpt_aged_60}, whose expression returns
+        java.math.BigDecimal.ZERO - never null - for a non-matching bucket, per
+        the sibling reports' null-registration rule.
+
+     4. Detail rows sort franchisee, then oldest bucket first, then due date,
+        so the most collectable-overdue lines lead each franchisee's block.
+
+     5. A page footer carries "Page X of Y"; unlike the single-page Store P and
+        L Statement this report runs to tens of pages at the default filters
+        (572 open invoices across 167 franchisees).
+
+     JR7-native throughout: <query language="SQL">, <element kind="...">,
+     <element kind="crosstab"> with <rowGroup>/<columnGroup>/<measure>/<cell>. -->
+<jasperReport name="rpt_ar_aging" language="java" pageWidth="842" pageHeight="595" orientation="Landscape" columnWidth="782" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" whenNoDataType="AllSectionsNoDetail">
+
+	<style name="ar_cell" fontSize="8.0" forecolor="#1F4E79"/>
+	<style name="ar_cell_aged" fontSize="8.0" forecolor="#1F4E79">
+		<conditionalStyle forecolor="#D9534F">
+			<conditionExpression><![CDATA[$F{days_overdue} != null && $F{days_overdue}.intValue() > 0]]></conditionExpression>
+		</conditionalStyle>
+	</style>
+	<style name="ar_grp_60" fontSize="9.0" forecolor="#1F4E79">
+		<conditionalStyle forecolor="#D9534F">
+			<conditionExpression><![CDATA[$V{grp_b60p} != null && $V{grp_b60p}.signum() > 0]]></conditionExpression>
+		</conditionalStyle>
+	</style>
+
+	<parameter name="p_asof" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_franchisee" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT f.franchisee_id, f.owner_name, f.storenumber, f.storename, f.region, f.invoice_number, f.yyyymm, f.due_date, f.status, f.aging_bucket,
+       f.total_invoiced, f.amount_paid, f.balance, f.days_overdue,
+       CASE f.aging_bucket WHEN 'Current' THEN 1 WHEN '1-30 days' THEN 2 WHEN '31-60 days' THEN 3 ELSE 4 END AS bucket_ord
+FROM franchise_fee_ledger f
+WHERE f.status <> 'Paid' AND f.yyyymm <= INT4($P{p_asof}) AND $X{IN, f.region, p_regions} AND $X{IN, f.franchisee_id, p_franchisee}
+ORDER BY f.franchisee_id, bucket_ord DESC, f.due_date
+	]]></query>
+
+	<field name="franchisee_id" class="java.lang.Integer"/>
+	<field name="owner_name" class="java.lang.String"/>
+	<field name="storenumber" class="java.lang.Integer"/>
+	<field name="storename" class="java.lang.String"/>
+	<field name="region" class="java.lang.String"/>
+	<field name="invoice_number" class="java.lang.String"/>
+	<field name="yyyymm" class="java.lang.Integer"/>
+	<field name="due_date" class="java.sql.Date"/>
+	<field name="status" class="java.lang.String"/>
+	<field name="aging_bucket" class="java.lang.String"/>
+	<field name="total_invoiced" class="java.math.BigDecimal"/>
+	<field name="amount_paid" class="java.math.BigDecimal"/>
+	<field name="balance" class="java.math.BigDecimal"/>
+	<field name="days_overdue" class="java.lang.Integer"/>
+	<field name="bucket_ord" class="java.lang.Integer"/>
+
+	<variable name="grp_balance" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="franchisee">
+		<expression><![CDATA[$F{balance}]]></expression>
+	</variable>
+	<variable name="grp_current" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="franchisee">
+		<expression><![CDATA["Current".equals($F{aging_bucket}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+	<variable name="grp_b1_30" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="franchisee">
+		<expression><![CDATA["1-30 days".equals($F{aging_bucket}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+	<variable name="grp_b31_60" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="franchisee">
+		<expression><![CDATA["31-60 days".equals($F{aging_bucket}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+	<variable name="grp_b60p" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="franchisee">
+		<expression><![CDATA["60+ days".equals($F{aging_bucket}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+
+	<variable name="rpt_balance" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{balance}]]></expression>
+	</variable>
+	<variable name="rpt_aged_60" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA["60+ days".equals($F{aging_bucket}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+	<variable name="rpt_open_n" class="java.lang.Integer" calculation="Sum">
+		<expression><![CDATA["Open".equals($F{status}) ? Integer.valueOf(1) : Integer.valueOf(0)]]></expression>
+	</variable>
+	<variable name="rpt_overdue_n" class="java.lang.Integer" calculation="Sum">
+		<expression><![CDATA["Overdue".equals($F{status}) ? Integer.valueOf(1) : Integer.valueOf(0)]]></expression>
+	</variable>
+
+	<group name="franchisee">
+		<expression><![CDATA[$F{franchisee_id}]]></expression>
+		<groupHeader>
+			<band height="22">
+				<element kind="rectangle" x="0" y="2" width="782" height="18" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF"/>
+				<element kind="textField" x="6" y="2" width="770" height="18" fontSize="10.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle">
+					<expression><![CDATA[$F{owner_name} + "  (franchisee " + $F{franchisee_id} + ")"]]></expression>
+				</element>
+			</band>
+		</groupHeader>
+		<groupFooter>
+			<band height="38">
+				<element kind="line" x="0" y="1" width="782" height="1" forecolor="#1F4E79"/>
+				<element kind="staticText" x="282" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[Current]]></text></element>
+				<element kind="staticText" x="382" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[1-30 days]]></text></element>
+				<element kind="staticText" x="482" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[31-60 days]]></text></element>
+				<element kind="staticText" x="582" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[60+ days]]></text></element>
+				<element kind="staticText" x="682" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[Total outstanding]]></text></element>
+
+				<element kind="textField" x="6" y="16" width="272" height="16" fontSize="9.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle">
+					<expression><![CDATA["Subtotal for " + $F{owner_name}]]></expression>
+				</element>
+				<element kind="textField" x="282" y="16" width="98" height="16" fontSize="9.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_current}]]></expression>
+				</element>
+				<element kind="textField" x="382" y="16" width="98" height="16" fontSize="9.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_b1_30}]]></expression>
+				</element>
+				<element kind="textField" x="482" y="16" width="98" height="16" fontSize="9.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_b31_60}]]></expression>
+				</element>
+				<element kind="textField" style="ar_grp_60" x="582" y="16" width="98" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_b60p}]]></expression>
+				</element>
+				<element kind="textField" x="682" y="16" width="98" height="16" fontSize="9.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_balance}]]></expression>
+				</element>
+				<element kind="line" x="0" y="36" width="782" height="1" forecolor="#D6E0EF"/>
+			</band>
+		</groupFooter>
+	</group>
+
+	<title height="56">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="782" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Franchise Receivables Aging]]></text></element>
+		<element kind="textField" x="0" y="26" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["Unpaid franchise fees in CAD, by franchisee. Ledger as of 2020-12-31, invoices through "
++ $P{p_asof}.substring(0, 4) + "-" + $P{p_asof}.substring(4)
++ ". Regions: " + ($P{p_regions} == null || $P{p_regions}.isEmpty() ? "all"
+    : $P{p_regions}.toString().replace("[", "").replace("]", ""))]]></expression>
+		</element>
+		<element kind="line" x="0" y="50" width="782" height="1" forecolor="#D6E0EF"/>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="782" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="4" y="0" width="172" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Store]]></text></element>
+		<element kind="staticText" x="178" y="0" width="94" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Invoice]]></text></element>
+		<element kind="staticText" x="276" y="0" width="52" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Month]]></text></element>
+		<element kind="staticText" x="332" y="0" width="66" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Due]]></text></element>
+		<element kind="staticText" x="402" y="0" width="66" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Bucket]]></text></element>
+		<element kind="staticText" x="472" y="0" width="84" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Invoiced]]></text></element>
+		<element kind="staticText" x="560" y="0" width="72" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Paid]]></text></element>
+		<element kind="staticText" x="636" y="0" width="82" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Balance]]></text></element>
+		<element kind="staticText" x="722" y="0" width="56" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Days overdue]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="16">
+			<element kind="rectangle" x="0" y="0" width="782" height="16" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="ar_cell" x="4" y="0" width="172" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{storenumber} + " " + $F{storename}]]></expression>
+			</element>
+			<element kind="textField" style="ar_cell" x="178" y="0" width="94" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{invoice_number}]]></expression>
+			</element>
+			<element kind="textField" style="ar_cell" x="276" y="0" width="52" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{yyyymm} == null ? "" : ($F{yyyymm}.toString().substring(0, 4) + "-" + $F{yyyymm}.toString().substring(4))]]></expression>
+			</element>
+			<element kind="textField" style="ar_cell" x="332" y="0" width="66" height="16" vTextAlign="Middle" pattern="yyyy-MM-dd">
+				<expression><![CDATA[$F{due_date}]]></expression>
+			</element>
+			<element kind="textField" style="ar_cell_aged" x="402" y="0" width="66" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{aging_bucket}]]></expression>
+			</element>
+			<element kind="textField" style="ar_cell" x="472" y="0" width="84" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{total_invoiced}]]></expression>
+			</element>
+			<element kind="textField" style="ar_cell" x="560" y="0" width="72" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{amount_paid}]]></expression>
+			</element>
+			<element kind="textField" style="ar_cell" x="636" y="0" width="82" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{balance}]]></expression>
+			</element>
+			<element kind="textField" style="ar_cell_aged" x="722" y="0" width="56" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0">
+				<expression><![CDATA[$F{days_overdue}]]></expression>
+			</element>
+		</band>
+	</detail>
+
+	<pageFooter height="18">
+		<element kind="line" x="0" y="0" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="textField" x="0" y="4" width="500" height="12" fontSize="8.0" forecolor="#5B7DA6">
+			<expression><![CDATA["Franchise Receivables Aging -- amounts in CAD"]]></expression>
+		</element>
+		<element kind="textField" x="600" y="4" width="130" height="12" fontSize="8.0" forecolor="#5B7DA6" hTextAlign="Right">
+			<expression><![CDATA["Page " + $V{PAGE_NUMBER} + " of"]]></expression>
+		</element>
+		<element kind="textField" x="732" y="4" width="50" height="12" fontSize="8.0" forecolor="#5B7DA6" evaluationTime="Report">
+			<expression><![CDATA[" " + $V{PAGE_NUMBER}]]></expression>
+		</element>
+	</pageFooter>
+
+	<summary height="304">
+		<element kind="line" x="0" y="4" width="782" height="1" forecolor="#D6E0EF"/>
+
+		<element kind="staticText" x="0" y="8" width="195" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Total outstanding]]></text></element>
+		<element kind="staticText" x="196" y="8" width="195" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Aged 60+ days]]></text></element>
+		<element kind="staticText" x="392" y="8" width="195" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Open invoices]]></text></element>
+		<element kind="staticText" x="588" y="8" width="194" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Overdue invoices]]></text></element>
+
+		<element kind="textField" x="0" y="30" width="195" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_balance}]]></expression>
+		</element>
+		<element kind="textField" x="196" y="30" width="195" height="36" fontSize="26.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_aged_60}]]></expression>
+		</element>
+		<element kind="textField" x="392" y="30" width="195" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_open_n}]]></expression>
+		</element>
+		<element kind="textField" x="588" y="30" width="194" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_overdue_n}]]></expression>
+		</element>
+
+		<element kind="line" x="0" y="72" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="0" y="78" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Outstanding balance by franchisee and aging bucket (CAD)]]></text></element>
+
+		<element kind="crosstab" x="0" y="96" width="782" height="200">
+			<dataset/>
+			<rowGroup name="ct_franchisee" totalPosition="End" width="142">
+				<bucket class="java.lang.Integer"><expression><![CDATA[$F{franchisee_id}]]></expression></bucket>
+				<header>
+					<element kind="textField" x="4" y="0" width="134" height="16" fontSize="8.0" forecolor="#1F4E79" vTextAlign="Middle">
+						<expression><![CDATA["Franchisee " + $V{ct_franchisee}]]></expression>
+					</element>
+				</header>
+				<totalHeader>
+					<element kind="staticText" x="4" y="0" width="134" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle"><text><![CDATA[All franchisees]]></text></element>
+				</totalHeader>
+			</rowGroup>
+			<columnGroup name="ct_bucket" totalPosition="End" height="18">
+				<bucket class="java.lang.Integer"><expression><![CDATA[$F{bucket_ord}]]></expression></bucket>
+				<header>
+					<element kind="textField" x="0" y="0" width="128" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" mode="Opaque" backcolor="#1F4E79">
+						<expression><![CDATA[$V{ct_bucket}.intValue() == 1 ? "Current" : ($V{ct_bucket}.intValue() == 2 ? "1-30 days" : ($V{ct_bucket}.intValue() == 3 ? "31-60 days" : "60+ days"))]]></expression>
+					</element>
+				</header>
+				<totalHeader>
+					<element kind="staticText" x="0" y="0" width="128" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" mode="Opaque" backcolor="#1F4E79"><text><![CDATA[Total]]></text></element>
+				</totalHeader>
+			</columnGroup>
+			<measure name="ct_balance" calculation="Sum" class="java.math.BigDecimal">
+				<expression><![CDATA[$F{balance}]]></expression>
+			</measure>
+			<cell width="128" height="16">
+				<contents mode="Transparent">
+					<element kind="textField" x="0" y="0" width="124" height="16" fontSize="8.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{ct_balance}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+			<cell width="128" height="16" rowTotalGroup="ct_franchisee">
+				<contents mode="Opaque" backcolor="#D6E0EF">
+					<element kind="textField" x="0" y="0" width="124" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{ct_balance}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+			<cell width="128" height="16" columnTotalGroup="ct_bucket">
+				<contents mode="Opaque" backcolor="#D6E0EF">
+					<element kind="textField" x="0" y="0" width="124" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{ct_balance}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+			<cell width="128" height="16" rowTotalGroup="ct_franchisee" columnTotalGroup="ct_bucket">
+				<contents mode="Opaque" backcolor="#D6E0EF">
+					<element kind="textField" x="0" y="0" width="124" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{ct_balance}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+		</element>
+	</summary>
+
+</jasperReport>

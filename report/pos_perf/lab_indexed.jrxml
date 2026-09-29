@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Workforce and Labour cockpit: monthly labour cost against monthly net
+     sales, both rebased so January 2019 equals 100. Two line series over the
+     same month category; month labels rotated with categoryAxisTickLabelRotation,
+     the same attribute exec_trend.jrxml and pnl_contribution_trend.jrxml use.
+
+     DEVIATION from the task brief's query, two parts:
+     1. Fan-out, same defect as lab_format.jrxml. The brief joined the daily
+        labour table straight to the monthly store profit table, which repeats
+        each month's net sales about 62 times (store x date x shift). The
+        labour side is pre-aggregated to store-month in a derived table first.
+     2. Base month. The brief took the January 2019 denominators from scalar
+        subqueries over the WHOLE of each source table, but the numerators
+        come from the INNER JOIN of the two, so the labour series started at
+        99.45 instead of 100 - stores that carry a labour schedule but no
+        profit row inflated the denominator only. The base row is therefore
+        taken from the same joined universe as the series, via a cross join to
+        a one-row derived table. Verified in the warehouse: both series now
+        start at exactly 100.00 for 201901.
+
+     The reading this tile is built to deliver: net sales swing hard with the
+     season (201912 at 201, 202012 at 230) while labour barely moves off 100 -
+     the schedule is essentially flat and only the length of the month shows
+     up in it (February dips to about 90). Labour is not flexing with demand.
+
+     Both series are zero guarded: a null on the first row fails to register
+     the series and shifts or inverts the seriesColor order bindings.
+
+     JR7-native line plot: showLines/showShapes are the valid flags
+     (showTickMarks/showTickLabels are REJECTED on a line plot per
+     jr7-valid-elements.md 3d). Chart is in the title band, so
+     evaluationTime="Report". Cockpit archetype: no parameters. -->
+<jasperReport name="lab_indexed" language="java" pageWidth="1000" pageHeight="380" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT b.yyyymm, CAST(b.yyyymm AS VARCHAR(6)) AS ym,
+       DECIMAL(100.0 * FLOAT8(b.net_sales) / FLOAT8(NULLIF(base.net_sales, 0)), 8, 2) AS sales_index,
+       DECIMAL(100.0 * FLOAT8(b.labour_cost) / FLOAT8(NULLIF(base.labour_cost, 0)), 8, 2) AS labour_index
+FROM (SELECT p.yyyymm AS yyyymm, SUM(p.net_sales) AS net_sales, SUM(l.labour_cost) AS labour_cost
+      FROM store_pnl_monthly p
+      JOIN (SELECT storenumber, yyyymm, SUM(labour_cost) AS labour_cost
+            FROM dash_labour GROUP BY storenumber, yyyymm) l
+        ON l.storenumber = p.storenumber AND l.yyyymm = p.yyyymm
+      GROUP BY p.yyyymm) b
+CROSS JOIN (SELECT SUM(p.net_sales) AS net_sales, SUM(l.labour_cost) AS labour_cost
+      FROM store_pnl_monthly p
+      JOIN (SELECT storenumber, yyyymm, SUM(labour_cost) AS labour_cost
+            FROM dash_labour GROUP BY storenumber, yyyymm) l
+        ON l.storenumber = p.storenumber AND l.yyyymm = p.yyyymm
+      WHERE p.yyyymm = 201901) base
+ORDER BY b.yyyymm
+	]]></query>
+
+	<field name="yyyymm" class="java.lang.Integer"/>
+	<field name="ym" class="java.lang.String"/>
+	<field name="sales_index" class="java.math.BigDecimal"/>
+	<field name="labour_index" class="java.math.BigDecimal"/>
+
+	<title height="360">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="980" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Labour Cost and Net Sales, Indexed to Jan 2019 = 100]]></text></element>
+		<element kind="staticText" x="0" y="26" width="980" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Both lines rebased to the same starting month]]></text></element>
+
+		<element kind="chart" chartType="line" x="0" y="48" width="980" height="312" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Sales Index"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{sales_index} == null ? java.math.BigDecimal.ZERO : $F{sales_index}]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Labour Index"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{labour_index} == null ? java.math.BigDecimal.ZERO : $F{labour_index}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showLines="true" showShapes="true" categoryAxisTickLabelRotation="-45">
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#239CA8"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

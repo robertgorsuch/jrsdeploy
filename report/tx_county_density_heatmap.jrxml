@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Texas population density heatmap by county, Actian theme.
+  PRO FusionMaps component (fm:map namespace) rendered server-side by
+  JasperReports Server. The installed "Texas" map (fusion/maps/fusioncharts.texas.js)
+  is keyed by county FIPS, so idExpression binds the 3-digit countyfp string (map keys FIPS < 100 as zero-padded "001").
+  NOT locally compilable - validate by deploy + run on the server.
+
+  Color: single-hue sequential ramp from the Actian UX Blue ramp, light -> dark
+  (Blue 10 #C8E4FF, Blue 07 #71B7F4, Tech Blue #3C91FF, Blue 02 #1963D7,
+  Software Blue 04 #0000AA, Software Blue #000032). Six bins follow the statewide
+  density quantiles used by tx_county_density_map.jrxml.
+-->
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd"
+              name="tx_county_density_heatmap" pageWidth="842" pageHeight="595" columnWidth="802"
+              leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20"
+              uuid="a7c1e2d4-0020-0002-0003-000000000001">
+	<queryString><![CDATA[SELECT b.countyfp AS map_id, c.name AS county, round((p.pop / b.land_km2)::numeric, 1) AS density FROM (SELECT countyfp, sum(aland)/1000000.0 AS land_km2 FROM tiger_data.tx_bg GROUP BY countyfp) b JOIN (SELECT countyfp, sum(pop) AS pop FROM tiger_data.tx_tabblock20 GROUP BY countyfp) p ON p.countyfp = b.countyfp JOIN tiger.county c ON c.statefp = '48' AND c.countyfp = b.countyfp WHERE b.land_km2 > 0 ORDER BY density DESC]]></queryString>
+	<field name="map_id" class="java.lang.String"/>
+	<field name="county" class="java.lang.String"/>
+	<field name="density" class="java.math.BigDecimal"/>
+	<title>
+		<band height="540">
+			<image>
+				<reportElement x="0" y="0" width="44" height="44" uuid="a7c1e2d4-0020-0002-0003-000000000010"/>
+				<imageExpression><![CDATA["repo:/images/actian_logo"]]></imageExpression>
+			</image>
+			<staticText>
+				<reportElement x="0" y="0" width="802" height="26" forecolor="#000032" uuid="a7c1e2d4-0020-0002-0003-000000000002"/>
+				<textElement textAlignment="Center"><font size="16" isBold="true"/></textElement>
+				<text><![CDATA[Texas Population Density Heatmap (people / km2)]]></text>
+			</staticText>
+			<staticText>
+				<reportElement x="0" y="26" width="802" height="14" forecolor="#6C7882" uuid="a7c1e2d4-0020-0002-0003-000000000003"/>
+				<textElement textAlignment="Center"><font size="9"/></textElement>
+				<text><![CDATA[2020 Census block population over TIGER county land area. Six bins follow the statewide density quantiles (median 8 / km2).]]></text>
+			</staticText>
+			<componentElement>
+				<reportElement x="0" y="46" width="802" height="490" uuid="a7c1e2d4-0020-0002-0003-000000000004"/>
+				<fm:map xmlns:fm="http://jaspersoft.com/fusion"
+				        xsi:schemaLocation="http://jaspersoft.com/fusion http://jaspersoft.com/schema/fusion.xsd"
+				        evaluationTime="Report">
+					<fm:mapNameExpression><![CDATA["Texas"]]></fm:mapNameExpression>
+					<fm:mapProperty name="includeNameInLabels">
+						<fm:propertyExpression><![CDATA[Boolean.FALSE]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="showLabels">
+						<fm:propertyExpression><![CDATA[Boolean.FALSE]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="numberSuffix">
+						<fm:propertyExpression><![CDATA[" /km2"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="showCanvasBorder">
+						<fm:propertyExpression><![CDATA[Boolean.FALSE]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="canvasBorderThickness">
+						<fm:propertyExpression><![CDATA[Integer.valueOf(0)]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="borderColor">
+						<fm:propertyExpression><![CDATA["FFFFFF"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="borderThickness">
+						<fm:propertyExpression><![CDATA[Integer.valueOf(1)]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="legendPosition">
+						<fm:propertyExpression><![CDATA["BOTTOM"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="legendItemFontColor">
+						<fm:propertyExpression><![CDATA["1D2123"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="legendCaption">
+						<fm:propertyExpression><![CDATA["People per km2"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:colorRange color="#C8E4FF">
+						<fm:minValueExpression><![CDATA[0]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[2]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["under 2"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:colorRange color="#71B7F4">
+						<fm:minValueExpression><![CDATA[2]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[10]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["2 - 10"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:colorRange color="#3C91FF">
+						<fm:minValueExpression><![CDATA[10]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[30]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["10 - 30"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:colorRange color="#1963D7">
+						<fm:minValueExpression><![CDATA[30]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[100]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["30 - 100"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:colorRange color="#0000AA">
+						<fm:minValueExpression><![CDATA[100]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[400]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["100 - 400"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:colorRange color="#000032">
+						<fm:minValueExpression><![CDATA[400]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[20000]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["400+"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:mapDataset>
+						<fm:entity>
+							<fm:idExpression><![CDATA[$F{map_id}]]></fm:idExpression>
+							<fm:valueExpression><![CDATA[$F{density}]]></fm:valueExpression>
+						</fm:entity>
+					</fm:mapDataset>
+					<fm:shapeData/>
+					<c:markerData xmlns:c="http://jasperreports.sourceforge.net/jasperreports/components"
+					              xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports/components http://jasperreports.sourceforge.net/xsd/components.xsd"/>
+				</fm:map>
+			</componentElement>
+		</band>
+	</title>
+</jasperReport>

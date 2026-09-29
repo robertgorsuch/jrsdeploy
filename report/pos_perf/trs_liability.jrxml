@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Franchise Treasury console: closing gift-card and loyalty liability by
+     month, two line series. These two balance tables are kept at network level
+     (they carry a month and a year and nothing else), so the region and
+     franchisee controls do NOT apply to this tile - the parameters are still
+     declared, because every tile on a dashboard filter strip must accept the
+     strip's whole parameter set, and the subtitle says "network" so the reader
+     is not misled into thinking a region selection narrowed these lines.
+     JR7-native line plot: showLines/showShapes are the valid flags
+     (showTickMarks/showTickLabels are REJECTED on a line plot per
+     jr7-valid-elements.md 3d); month labels rotated with
+     categoryAxisTickLabelRotation. Chart is in the title band ->
+     evaluationTime="Report". -->
+<jasperReport name="trs_liability" language="java" pageWidth="600" pageHeight="420" columnWidth="580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_asof" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_franchisee" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT g.yyyymm, CAST(g.yyyymm AS VARCHAR(6)) AS ym, g.closing_liability AS gift_liability, l.closing_liability_cad AS loyalty_liability
+FROM gift_card_liability_monthly g JOIN loyalty_liability_monthly l ON l.yyyymm = g.yyyymm
+WHERE g.yyyymm <= INT4($P{p_asof}) ORDER BY g.yyyymm
+	]]></query>
+
+	<field name="yyyymm" class="java.lang.Integer"/>
+	<field name="ym" class="java.lang.String"/>
+	<field name="gift_liability" class="java.math.BigDecimal"/>
+	<field name="loyalty_liability" class="java.math.BigDecimal"/>
+
+	<title height="400">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="580" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Gift Card and Loyalty Liability]]></text></element>
+		<element kind="textField" x="0" y="26" width="580" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA["Network closing balances in CAD, all regions. Ledger as of 2020-12-31, invoices through " + $P{p_asof}.substring(0, 4) + "-" + $P{p_asof}.substring(4)]]></expression></element>
+
+		<element kind="chart" chartType="line" x="0" y="48" width="580" height="352" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Gift cards"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{gift_liability}]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Loyalty"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{loyalty_liability}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showLines="true" showShapes="true" categoryAxisTickLabelRotation="-45">
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#1DB6C0"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

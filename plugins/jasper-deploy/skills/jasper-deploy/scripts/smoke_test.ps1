@@ -64,7 +64,10 @@ try {
     if ($pesterV3 -and (Test-Path $testsDir)) {
         Import-Module Pester -RequiredVersion $pesterV3.Version
         $pr = Invoke-Pester -Path $testsDir -Quiet -PassThru
-        if ($pr.FailedCount -gt 0) { throw "precheck: $($pr.FailedCount) Pester unit test(s) failed" }
+        if ($pr.FailedCount -gt 0) {
+            $pr.TestResult | Where-Object { -not $_.Passed -and $_.Result -ne 'Skipped' } | ForEach-Object { Write-Host "  FAIL  $($_.Describe) / $($_.Name): $($_.FailureMessage)" }
+            throw "precheck: $($pr.FailedCount) Pester unit test(s) failed"
+        }
         Write-Host "PRECHECK  unit tests OK ($($pr.PassedCount) passed)"
     } elseif (Test-Path $testsDir) {
         Write-Host "PRECHECK  unit tests SKIPPED (Pester 3.x not available; suite uses Pester 3 syntax)"
@@ -93,7 +96,7 @@ GROUP BY 1 ORDER BY 2 DESC
 
     # 3. deploy (with a single-select input control on family)
     & "$skill/deploy_report.ps1" -Jrxml $jrxml -TargetUri $rptUri -Label "Smoke Test" `
-        -DataSourceUri $DataSourceUri -Overwrite `
+        -DataSourceUri $DataSourceUri -Overwrite -Apply `
         -Control "family:select:Family:Food;Drink;Non-Consumable" @cred *>$null
     $r = Invoke-JrsGet -Jrs $jrs -Uri $rptUri
     step "deploy" ($r.Code -match '^2\d\d$')
@@ -141,7 +144,7 @@ GROUP BY 1 ORDER BY 2 DESC
     {"kind":"text","name":"Hdr","text":"Smoke","size":14,"bold":true,"x":0,"y":0,"width":40,"height":3},
     {"kind":"report","name":"smoke_rpt","title":"Smoke Test","x":0,"y":3,"width":40,"height":12} ] }
 "@ | Set-Content $manifest -Encoding ascii
-    & "$skill/compose_dashboard.ps1" -Manifest $manifest @cred *>$null
+    & "$skill/compose_dashboard.ps1" -Manifest $manifest -Apply @cred *>$null
     $d = Invoke-JrsGet -Jrs $jrs -Uri $dashUri
     step "compose-dashboard" ($d.Code -match '^2\d\d$')
 
@@ -153,7 +156,7 @@ GROUP BY 1 ORDER BY 2 DESC
         & (Get-JrsPython) "$skill/scaffold_jrxml.py" --name smoke_styled --db $Database --title "Styled" `
             --style-template "$Folder/jd_smoke" --query-file "$work/smoke.sql" --out "$work/smoke_styled.jrxml" *>$null
         & "$skill/deploy_report.ps1" -Jrxml "$work/smoke_styled.jrxml" -TargetUri "$Folder/smoke_styled" `
-            -Label "Styled" -DataSourceUri $DataSourceUri -Overwrite @cred *>$null
+            -Label "Styled" -DataSourceUri $DataSourceUri -Overwrite -Apply @cred *>$null
         $sc = & (Get-JrsCurl) -s -o "$work/smoke_styled.pdf" -w "%{http_code}" -u "$($jrs.User):$($jrs.Password)" "$($jrs.ServerUrl)/rest_v2/reports$Folder/smoke_styled.pdf"
         $styleOk = ("$sc".Trim() -eq "200" -and ((Get-Content "$work/smoke_styled.pdf" -Raw) -like "%PDF-*"))
     } catch { $styleOk = $false }
@@ -210,7 +213,7 @@ GROUP BY 1 ORDER BY 2 DESC
         $qcParent = "Product_Family|product_family|product_family|SELECT DISTINCT product_family FROM product_class ORDER BY 1"
         $qcChild  = "Product_Department|product_department|product_department|SELECT DISTINCT pc.product_department FROM product_class pc WHERE pc.product_family=`$P{Product_Family} ORDER BY 1"
         & "$skill/deploy_report.ps1" -Jrxml "$work/smoke_casc.jrxml" -TargetUri "$Folder/smoke_casc" `
-            -Label "Cascade" -DataSourceUri $DataSourceUri -Overwrite -QueryControl $qcParent,$qcChild @cred *>$null
+            -Label "Cascade" -DataSourceUri $DataSourceUri -Overwrite -Apply -QueryControl $qcParent,$qcChild @cred *>$null
         # cascading proof: child option count must differ by parent value
         $vFood = ((Invoke-JrsRest -Jrs $jrs -Method GET -Path "/rest_v2/reports$Folder/smoke_casc/inputControls/Product_Department/values?Product_Family=Food").Body | ConvertFrom-Json).inputControlState.options.Count
         $vDrink = ((Invoke-JrsRest -Jrs $jrs -Method GET -Path "/rest_v2/reports$Folder/smoke_casc/inputControls/Product_Department/values?Product_Family=Drink").Body | ConvertFrom-Json).inputControlState.options.Count
@@ -324,7 +327,7 @@ finally {
     if (-not $KeepArtifacts) {
         # 7. teardown (dashboard, report, control folder, then the smoke folder,
         #    plus the UI theme which lives under /themes outside $Folder)
-        try { & "$skill/teardown_dashboard.ps1" -Uri $dashUri -IncludeReports @cred *>$null } catch {}
+        try { & "$skill/teardown_dashboard.ps1" -Uri $dashUri -IncludeReports -Apply @cred *>$null } catch {}
         Invoke-JrsDelete -Jrs $jrs -Uri $Folder | Out-Null
         Invoke-JrsDelete -Jrs $jrs -Uri "/themes/$themeName" | Out-Null
         $gone = (Invoke-JrsGet -Jrs $jrs -Uri $dashUri).Code -notmatch '^2\d\d$'

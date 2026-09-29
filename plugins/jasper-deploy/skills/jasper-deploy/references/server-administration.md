@@ -251,3 +251,33 @@ p376-393); Configuring JasperReports Web Studio Access (p367); password
 storage strategy + password history config (p374); a Downloading and
 Installing JDBC Drivers section; the 404-message setting; Disabling the
 Alerts. If a customer is on 9.0.x, don't cite those features.
+
+## Preflight: doctor.ps1 (what each check proves, and what it cannot)
+
+`scripts/doctor.ps1` is the canonical first step on a fresh clone. It never
+aborts on a failing item; every line is PASS / WARN / FAIL and only FAIL sets
+a non-zero exit. Optional inputs come from `jrs.config.json`
+(`references/jrs.config.schema.json`): `jrsWebappDir`, `chartCustomizerJar`,
+`repoDb`, `environments`. `-ConfigPath` points it at another config file
+(used by `tests/doctor.Tests.ps1`, which runs fully offline).
+
+| Check line | Source of truth | Meaning of WARN |
+|---|---|---|
+| `jrs.config.json` | the config file + schema `required` list | n/a (missing/invalid is FAIL) |
+| `JRS server reachable` | GET `rest_v2/serverInfo` on the resolved server | n/a (FAIL) |
+| `PostgreSQL reachable` / `repo metadata DB` | psql `select 1` / `count(*) from jiaccessevent` on `repoDb` | psql absent, DB unreachable, or 0 access events (you are on the stale :5432 decoy, not the live bundled instance) |
+| `JRS->DB connection (contexts)` | POST `/rest_v2/contexts` - the JRS JVM opens the connection | the server, not this shell, cannot reach the DB (driver, host, credentials) |
+| `server settings (REST)` | `/rest_v2/settings/globalConfiguration` + `domainWhitelist` attribute | REST settings unreadable; unset whitelist means Visualize.js cross-origin embeds 403 |
+| `JR runtime jars` | `jrLibDir` contents | n/a (FAIL) |
+| `chart-customizer jar` | `<jrsWebappDir>/WEB-INF/lib/actian-chart-customizers.jar` vs the bundled `chart_customizers/` jar, SHA-256 | absent (only bar-gradient reports need it) or STALE - copy the bundled jar over it and restart Tomcat |
+| `repo DB port (webapp config)` | the jdbc URL in `<jrsWebappDir>/META-INF/context.xml` (fallback `WEB-INF/js.jdbc.properties`) | webapp dir unknown, or `repoDb` in jrs.config.json disagrees with what the server actually uses. The bundled PostgreSQL often listens on a NON-default port such as 5433; never assume 5432 - `report_usage.ps1` and check 3b read `repoDb` |
+| `env profile '<name>'` | GET `rest_v2/serverInfo` per `environments` entry (profile keys shadow top-level ones, `passwordCommand` honoured) | that profile is unreachable - `promote.ps1 -ToEnv <name>` will fail. The version printed per profile is what `version-matrix.md` section 4 wants compared before a promotion (never promote newer -> older) |
+| `Python (sqlglot, pypdfium2)` | `python -c "import ..."` | lineage / visual baselines unavailable |
+| `key scripts present` | `scripts/` | n/a (FAIL) |
+
+Limits: the webapp checks only see a LOCAL exploded war (set `jrsWebappDir`;
+leave it unset on a laptop that only talks to a remote server and accept the
+WARN). The chart-customizer comparison is a byte hash - a rebuilt-but-identical
+jar passes, a functionally identical jar built on another machine does not.
+The env-profile probe uses HTTP Basic only; SSO-fronted servers report a
+non-200 and need a manual check.

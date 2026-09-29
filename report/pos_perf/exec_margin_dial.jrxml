@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Executive Overview: Gross Margin KPI dial. JFreeChart meter (shape="dial"),
+     SQUARE chart element -> perfect circle, overlay textField for the value
+     (meter's own valueDisplay is unreliable; see foodmart/gross_margin_dial.jrxml).
+     Basis: gross_margin_pct = (sales_ext - cost_line) / sales_ext * 100 (corrected
+     basis: cost_line, NOT cost_ext). Scale 0-40 (value ~31.65). JR7-native.
+
+     NAVY THEME: full-bleed #000032 background band with margins folded into the
+     element coordinates (see exec_kpi_strip.jrxml). The chart element and its
+     plot are both opaque #000032 so JFreeChart does not paint a white chart or
+     plot area around the dial; the dial's own interval colours (the risk bands)
+     are unchanged per the plan, and the needle/ticks/value are lightened so they
+     read on the navy ground.
+
+     KNOWN WART: JFreeChart draws a meter's TICK LABELS in pure blue (#0000FF)
+     and JRMeterPlot exposes no tickLabelPaint equivalent (only meterColor /
+     needleColor / tickColor, jr7-valid-elements.md 3f), so the 0.0-40.0 scale
+     numbers stay blue. They were blue on the light build too, against a darker
+     dial face, so this is not a re-skin regression. meterColor was tried and
+     measured to change nothing on this server (the JRS chart theme wins), so it
+     is not carried as a dead attribute. -->
+<jasperReport name="exec_margin_dial" language="java" pageWidth="400" pageHeight="260" columnWidth="400" leftMargin="0" rightMargin="0" topMargin="0" bottomMargin="0">
+	<query language="SQL"><![CDATA[SELECT round((SUM(sales_ext) - SUM(cost_line)) / NULLIF(SUM(sales_ext), 0) * 100, 2) AS margin_pct FROM dash_monthly]]></query>
+
+	<field name="margin_pct" class="java.math.BigDecimal"/>
+
+	<background height="260">
+		<element kind="rectangle" x="0" y="0" width="400" height="260" mode="Opaque" backcolor="#000032" forecolor="#000032"/>
+	</background>
+
+	<title height="252">
+		<element kind="staticText" x="8" y="8" width="384" height="16" fontSize="12.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center"><text><![CDATA[Gross Margin]]></text></element>
+		<element kind="staticText" x="8" y="24" width="384" height="12" fontSize="8.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Jan 2019 - Dec 2020]]></text></element>
+
+		<element kind="chart" chartType="meter" x="90" y="36" width="220" height="216" mode="Opaque" backcolor="#000032" evaluationTime="Report">
+			<dataset kind="value">
+				<valueExpression><![CDATA[$F{margin_pct}]]></valueExpression>
+			</dataset>
+			<plot shape="dial" units="%" tickCount="9" meterAngle="180" backcolor="#000032" needleColor="#FFFFFF" tickColor="#8AC6F8">
+				<dataRange>
+					<lowExpression><![CDATA[Double.valueOf(0)]]></lowExpression>
+					<highExpression><![CDATA[Double.valueOf(40)]]></highExpression>
+				</dataRange>
+				<valueDisplay color="#FFFFFF" mask="#,##0.0'%'"/>
+				<interval label="Low" backgroundColor="#D9534F">
+					<dataRange>
+						<lowExpression><![CDATA[Double.valueOf(0)]]></lowExpression>
+						<highExpression><![CDATA[Double.valueOf(16)]]></highExpression>
+					</dataRange>
+				</interval>
+				<interval label="Fair" backgroundColor="#F0AD4E">
+					<dataRange>
+						<lowExpression><![CDATA[Double.valueOf(16)]]></lowExpression>
+						<highExpression><![CDATA[Double.valueOf(24)]]></highExpression>
+					</dataRange>
+				</interval>
+				<interval label="Good" backgroundColor="#5CB85C">
+					<dataRange>
+						<lowExpression><![CDATA[Double.valueOf(24)]]></lowExpression>
+						<highExpression><![CDATA[Double.valueOf(40)]]></highExpression>
+					</dataRange>
+				</interval>
+			</plot>
+		</element>
+
+		<element kind="textField" x="90" y="162" width="220" height="24" fontSize="16.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report"><expression><![CDATA[new java.text.DecimalFormat("#,##0.0").format($F{margin_pct}) + "%"]]></expression></element>
+	</title>
+
+</jasperReport>

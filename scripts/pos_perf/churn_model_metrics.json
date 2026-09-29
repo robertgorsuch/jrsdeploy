@@ -1,0 +1,412 @@
+{
+  "model_version": "churn-gbm-v1",
+  "run_date": "2026-08-23",
+  "sample_pct": 8,
+  "bgnbd_params": {
+    "r": 1.8454110978533618,
+    "alpha": 16.18458211054818,
+    "a": 0.10725522842853098,
+    "b": 0.8690016856492929
+  },
+  "gbm_iterations": 400,
+  "validation": [
+    {
+      "scorer": "overdue_ratio",
+      "n": 43913,
+      "positive_rate": 0.4237697265046797,
+      "auc_roc": 0.794646709638609,
+      "auc_pr": 0.733634803828132,
+      "top_decile_lift": 2.00400600307526,
+      "brier": 0.4214301208582411
+    },
+    {
+      "scorer": "bgnbd_1_minus_palive",
+      "n": 43913,
+      "positive_rate": 0.4237697265046797,
+      "auc_roc": 0.82282396671765,
+      "auc_pr": 0.7493505070490087,
+      "top_decile_lift": 2.006693058590244,
+      "brier": 0.2141584702283895
+    },
+    {
+      "scorer": "gbm",
+      "n": 43913,
+      "positive_rate": 0.4237697265046797,
+      "auc_roc": 0.8523764416070353,
+      "auc_pr": 0.8057896223382425,
+      "top_decile_lift": 2.159855222944347,
+      "brier": 0.1554571756634909
+    },
+    {
+      "scorer": "gbm_vs_churn_90",
+      "n": 43913,
+      "positive_rate": 0.44201033862409767,
+      "auc_roc": 0.8477212854504793,
+      "auc_pr": 0.8095760752847383,
+      "top_decile_lift": 2.075875975060692,
+      "brier": 0.15808889887639263
+    },
+    {
+      "scorer": "gbm_Platinum",
+      "n": 8564,
+      "positive_rate": 0.08150397010742644,
+      "auc_roc": 0.8031282579189971,
+      "auc_pr": 0.3448456492915069,
+      "top_decile_lift": 4.3716693891760166,
+      "brier": 0.06977588776163259
+    },
+    {
+      "scorer": "gbm_Gold",
+      "n": 15668,
+      "positive_rate": 0.25982895072759765,
+      "auc_roc": 0.7195808608630795,
+      "auc_pr": 0.4788139203992149,
+      "top_decile_lift": 2.177481253095988,
+      "brier": 0.17775316287237425
+    },
+    {
+      "scorer": "gbm_Silver",
+      "n": 13432,
+      "positive_rate": 0.6053454437164979,
+      "auc_roc": 0.6877000626716392,
+      "auc_pr": 0.7590231675345003,
+      "top_decile_lift": 1.39856022926148,
+      "brier": 0.21610880351918116
+    },
+    {
+      "scorer": "gbm_Bronze",
+      "n": 6249,
+      "positive_rate": 0.913586173787806,
+      "auc_roc": 0.7037259233309329,
+      "auc_pr": 0.9603521637995786,
+      "top_decile_lift": 1.0875709069350687,
+      "brier": 0.08660909703412598
+    }
+  ],
+  "calibration": [
+    {
+      "q": 0,
+      "n": 4392,
+      "pred": 0.0393402384623352,
+      "actual": 0.02686703096539162
+    },
+    {
+      "q": 1,
+      "n": 4391,
+      "pred": 0.10735247239947092,
+      "actual": 0.07925301753586882
+    },
+    {
+      "q": 2,
+      "n": 4391,
+      "pred": 0.18239338565308724,
+      "actual": 0.1418811204736962
+    },
+    {
+      "q": 3,
+      "n": 4391,
+      "pred": 0.26862388020946365,
+      "actual": 0.2302436802550672
+    },
+    {
+      "q": 4,
+      "n": 4392,
+      "pred": 0.3747368885561433,
+      "actual": 0.3151183970856102
+    },
+    {
+      "q": 5,
+      "n": 4391,
+      "pred": 0.4980731662461309,
+      "actual": 0.45365520382600777
+    },
+    {
+      "q": 6,
+      "n": 4391,
+      "pred": 0.6220636976099554,
+      "actual": 0.5732179457982236
+    },
+    {
+      "q": 7,
+      "n": 4391,
+      "pred": 0.7283645616185362,
+      "actual": 0.6895923479845137
+    },
+    {
+      "q": 8,
+      "n": 4391,
+      "pred": 0.8127525855346526,
+      "actual": 0.812571168298793
+    },
+    {
+      "q": 9,
+      "n": 4392,
+      "pred": 0.8974895663550894,
+      "actual": 0.9153005464480874
+    }
+  ],
+  "importance": [
+    {
+      "feature": "bgnbd_p_alive",
+      "auc_drop": 0.14158181499389122,
+      "direction": -0.5028385196135803
+    },
+    {
+      "feature": "single_serve_pct",
+      "auc_drop": 0.01193502142841163,
+      "direction": 0.034538320270820835
+    },
+    {
+      "feature": "prepared_meals_pct",
+      "auc_drop": 0.01158019235976282,
+      "direction": -0.010913398919139837
+    },
+    {
+      "feature": "vegetarian_pct",
+      "auc_drop": 0.008860758873137087,
+      "direction": 0.06625074334348567
+    },
+    {
+      "feature": "ipt_max_asof",
+      "auc_drop": 0.007265047725542484,
+      "direction": -0.1418622304167936
+    },
+    {
+      "feature": "sales_asof",
+      "auc_drop": 0.004010837823356428,
+      "direction": -0.347120532745577
+    },
+    {
+      "feature": "purchase_days_asof",
+      "auc_drop": 0.0022232571348923535,
+      "direction": -0.3869995176424637
+    },
+    {
+      "feature": "ipt_median_asof",
+      "auc_drop": 0.0018470576642991565,
+      "direction": -0.07300245770989872
+    },
+    {
+      "feature": "purchase_days_l180",
+      "auc_drop": 0.001675231658392784,
+      "direction": -0.425346592494434
+    },
+    {
+      "feature": "ipt_last_asof",
+      "auc_drop": 0.0012439933532463199,
+      "direction": 0.030370186661469054
+    },
+    {
+      "feature": "avg_categories_l180",
+      "auc_drop": 0.00117980371192683,
+      "direction": -0.0620900824954778
+    },
+    {
+      "feature": "bgnbd_recency",
+      "auc_drop": 0.0010787559282114945,
+      "direction": -0.4994184141645776
+    },
+    {
+      "feature": "overdue_ratio",
+      "auc_drop": 0.000981453438979596,
+      "direction": 0.22725458850263483
+    },
+    {
+      "feature": "store_sales_per_sqft",
+      "auc_drop": 0.0009653480190711106,
+      "direction": -0.03799997714574884
+    },
+    {
+      "feature": "diet_profile",
+      "auc_drop": 0.0009063841420442476,
+      "direction": 0.0
+    },
+    {
+      "feature": "avg_basket_asof",
+      "auc_drop": 0.0007606150584043014,
+      "direction": -0.061082775309789984
+    },
+    {
+      "feature": "email_opt_in",
+      "auc_drop": 0.0007092855687366173,
+      "direction": 0.0
+    },
+    {
+      "feature": "tenure_days",
+      "auc_drop": 0.000704429104860127,
+      "direction": -0.2443511878110508
+    },
+    {
+      "feature": "favorite_category",
+      "auc_drop": 0.0005096835961495572,
+      "direction": 0.0
+    },
+    {
+      "feature": "home_store_share_l180",
+      "auc_drop": 0.0004739235505653028,
+      "direction": 0.07042341368965212
+    },
+    {
+      "feature": "ipt_mean_asof",
+      "auc_drop": 0.0003596234377654106,
+      "direction": -0.03402052193439813
+    },
+    {
+      "feature": "days_since_last",
+      "auc_drop": 0.0003508876854489973,
+      "direction": 0.4808072738660059
+    },
+    {
+      "feature": "avg_items_l180",
+      "auc_drop": 0.00030801942389468984,
+      "direction": -0.06700382183593023
+    },
+    {
+      "feature": "baskets_asof",
+      "auc_drop": 0.00021959321722608838,
+      "direction": -0.3228641862464793
+    },
+    {
+      "feature": "purchase_days_l30",
+      "auc_drop": 0.00020604675506685766,
+      "direction": -0.3368756693154825
+    },
+    {
+      "feature": "province",
+      "auc_drop": 0.0001456318215384833,
+      "direction": 0.0
+    },
+    {
+      "feature": "margin_l180",
+      "auc_drop": 0.0001353142869097157,
+      "direction": -0.35258858063630916
+    },
+    {
+      "feature": "sales_l30",
+      "auc_drop": 0.00013463124454760056,
+      "direction": -0.2999404307327967
+    },
+    {
+      "feature": "sales_l180",
+      "auc_drop": 0.00011093392316829931,
+      "direction": -0.36504181900676064
+    },
+    {
+      "feature": "stores_in_fsa",
+      "auc_drop": 8.54783396320169e-05,
+      "direction": -0.015075205883499506
+    }
+  ],
+  "activation": {
+    "scorer": "activation_gbm",
+    "n": 59068,
+    "positive_rate": 0.27195774361752556,
+    "auc_roc": 0.5610807861475686,
+    "auc_pr": 0.324181254235182,
+    "top_decile_lift": 1.3765559586914786,
+    "brier": 0.22648471475836188,
+    "split_first_jdn": 2458833.0
+  },
+  "activation_importance": [
+    {
+      "feature": "email_flag",
+      "auc_drop": 0.038491116790669966,
+      "direction": 0.10134077051221739
+    },
+    {
+      "feature": "first_basket_items",
+      "auc_drop": 0.027303485251139348,
+      "direction": 0.09093855836861775
+    },
+    {
+      "feature": "first_basket_value",
+      "auc_drop": 0.006076726851543368,
+      "direction": 0.08085392474462048
+    },
+    {
+      "feature": "first_categories",
+      "auc_drop": 0.0045734364877358935,
+      "direction": 0.08624136525141492
+    },
+    {
+      "feature": "home_region",
+      "auc_drop": 0.004148387048163671,
+      "direction": 0.0
+    },
+    {
+      "feature": "first_promo_value",
+      "auc_drop": 0.0017508373516992304,
+      "direction": 0.033562532598002875
+    },
+    {
+      "feature": "province",
+      "auc_drop": 0.0011083064067424209,
+      "direction": 0.0
+    },
+    {
+      "feature": "first_distinct_plus",
+      "auc_drop": 0.0010353470694997036,
+      "direction": 0.09682527760421183
+    },
+    {
+      "feature": "dow_num",
+      "auc_drop": 0.0006011959810237055,
+      "direction": 0.0012996304933358708
+    },
+    {
+      "feature": "is_holiday",
+      "auc_drop": 0.0005369566892069466,
+      "direction": 0.0
+    },
+    {
+      "feature": "age_band",
+      "auc_drop": 0.000258199408375015,
+      "direction": 0.0
+    },
+    {
+      "feature": "language_pref",
+      "auc_drop": 0.00021324327101546192,
+      "direction": 0.0
+    },
+    {
+      "feature": "first_ecommerce_flag",
+      "auc_drop": 0.00018953514006181393,
+      "direction": 0.0
+    },
+    {
+      "feature": "sale_hour",
+      "auc_drop": 0.00018238210466114957,
+      "direction": 0.0020413902490247888
+    },
+    {
+      "feature": "gender",
+      "auc_drop": 0.00014784293031988582,
+      "direction": 0.0
+    },
+    {
+      "feature": "store_sales_per_sqft",
+      "auc_drop": 0.00011953119996532813,
+      "direction": -0.0014490112172262921
+    },
+    {
+      "feature": "dwelling_type",
+      "auc_drop": 0.00011932010016912908,
+      "direction": 0.0
+    },
+    {
+      "feature": "household_size",
+      "auc_drop": 0.00010191248620872173,
+      "direction": -0.0017946127118467258
+    },
+    {
+      "feature": "household_income_band",
+      "auc_drop": 7.340589450388624e-05,
+      "direction": 0.0
+    },
+    {
+      "feature": "acquisition_channel",
+      "auc_drop": 3.82902553346387e-05,
+      "direction": 0.0
+    }
+  ]
+}

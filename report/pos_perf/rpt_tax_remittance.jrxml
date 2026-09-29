@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sales Tax Remittance: the paginated drill target behind the Tax Collected
+     by Province tile on the Franchise Treasury console. One month of collected
+     sales tax, one detail row per store, grouped by province, with a
+     per-province subtotal and a grand total plus taxable share in the summary.
+
+     PARAMETERS - p_yyyymm and p_province are both Strings fed by the shared
+     single-select LOV controls (JRS input control type 3 hands String values
+     back). p_yyyymm is cast with INT4() in the query because the column is an
+     integer; p_province is compared as a String, so it carries NO cast, and its
+     "All" sentinel short-circuits the province predicate for the unfiltered
+     run. Defaults are 202012 / All, i.e. what the console hands over.
+
+     DESIGN NOTES:
+
+     1. The rate lookup is a LEFT JOIN to the rate table purely for
+        province_name: the rate percentages themselves are already frozen onto
+        each fact row at build time, so the printed rate always matches the
+        rate the tax was actually computed with. The join picks the newest
+        effective_from at or before the row's month, which is one row per
+        province per month - verified against the data: 317 fact rows for
+        202012 join to exactly 317 output rows with no null province_name, so
+        the LEFT JOIN neither fans out nor drops.
+
+     2. Manitoba is the only province with a mid-history rate change (its
+        provincial rate steps down from 2019-07), so its group footer carries a
+        note line explaining the step. The note tests the province with
+        "MB".equals(...) rather than == : == on Strings is reference equality in
+        Java and would silently never fire.
+
+     3. Taxable share is recomputed from the summed taxable and net sales, NOT
+        averaged from the per-row share the query already carries. A mean of
+        per-store percentages is not the aggregate percentage, and the
+        acceptance figure (30.6 pct lifetime) is the aggregate one. The per-row
+        share field is still declared so the field list mirrors the query.
+
+     4. Every group and report total is a Sum over a non-null DECIMAL column, so
+        no zero-default guard is needed on the totals themselves; the two ratio
+        expressions guard their denominator explicitly and print "n/a" rather
+        than dividing by zero.
+
+     5. A4 portrait (595x842) with 30pt margins, so the seven mandated columns
+        share a 535pt column width. Detail amounts print to the cent; group and
+        report totals round to the dollar, matching the sibling statements.
+
+     JR7-native throughout: <query language="SQL">, <element kind="...">. -->
+<jasperReport name="rpt_tax_remittance" language="java" pageWidth="595" pageHeight="842" columnWidth="535" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" whenNoDataType="AllSectionsNoDetail">
+
+	<style name="tx_cell" fontSize="8.0" forecolor="#1F4E79"/>
+
+	<parameter name="p_yyyymm" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_province" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT t.province, r.province_name, t.provincial_tax_name, t.yyyymm, t.storenumber, t.region,
+       t.taxable_sales, t.zero_rated_sales, t.net_sales, t.taxable_share_pct, t.gst_pct, t.provincial_pct, t.combined_pct,
+       t.gst_collected, t.provincial_tax_collected, t.total_tax_collected
+FROM tax_collected_monthly t
+LEFT JOIN provincial_tax_rates r ON r.province = t.province AND r.effective_from = (SELECT MAX(effective_from) FROM provincial_tax_rates x WHERE x.province = t.province AND x.effective_from <= t.month_start)
+WHERE t.yyyymm = INT4($P{p_yyyymm}) AND ($P{p_province} = 'All' OR t.province = $P{p_province})
+ORDER BY t.province, t.storenumber
+	]]></query>
+
+	<field name="province" class="java.lang.String"/>
+	<field name="province_name" class="java.lang.String"/>
+	<field name="provincial_tax_name" class="java.lang.String"/>
+	<field name="yyyymm" class="java.lang.Integer"/>
+	<field name="storenumber" class="java.lang.Integer"/>
+	<field name="region" class="java.lang.String"/>
+	<field name="taxable_sales" class="java.math.BigDecimal"/>
+	<field name="zero_rated_sales" class="java.math.BigDecimal"/>
+	<field name="net_sales" class="java.math.BigDecimal"/>
+	<field name="taxable_share_pct" class="java.math.BigDecimal"/>
+	<field name="gst_pct" class="java.math.BigDecimal"/>
+	<field name="provincial_pct" class="java.math.BigDecimal"/>
+	<field name="combined_pct" class="java.math.BigDecimal"/>
+	<field name="gst_collected" class="java.math.BigDecimal"/>
+	<field name="provincial_tax_collected" class="java.math.BigDecimal"/>
+	<field name="total_tax_collected" class="java.math.BigDecimal"/>
+
+	<variable name="grp_net" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="province">
+		<expression><![CDATA[$F{net_sales}]]></expression>
+	</variable>
+	<variable name="grp_taxable" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="province">
+		<expression><![CDATA[$F{taxable_sales}]]></expression>
+	</variable>
+	<variable name="grp_zero" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="province">
+		<expression><![CDATA[$F{zero_rated_sales}]]></expression>
+	</variable>
+	<variable name="grp_gst" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="province">
+		<expression><![CDATA[$F{gst_collected}]]></expression>
+	</variable>
+	<variable name="grp_prov" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="province">
+		<expression><![CDATA[$F{provincial_tax_collected}]]></expression>
+	</variable>
+	<variable name="grp_total" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="province">
+		<expression><![CDATA[$F{total_tax_collected}]]></expression>
+	</variable>
+	<variable name="grp_stores" class="java.lang.Integer" calculation="Count" resetType="Group" resetGroup="province">
+		<expression><![CDATA[$F{storenumber}]]></expression>
+	</variable>
+
+	<variable name="rpt_net" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{net_sales}]]></expression>
+	</variable>
+	<variable name="rpt_taxable" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{taxable_sales}]]></expression>
+	</variable>
+	<variable name="rpt_zero" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{zero_rated_sales}]]></expression>
+	</variable>
+	<variable name="rpt_gst" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{gst_collected}]]></expression>
+	</variable>
+	<variable name="rpt_prov" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{provincial_tax_collected}]]></expression>
+	</variable>
+	<variable name="rpt_total" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{total_tax_collected}]]></expression>
+	</variable>
+
+	<group name="province" reprintHeaderOnEachPage="true">
+		<expression><![CDATA[$F{province}]]></expression>
+		<groupHeader>
+			<band height="40">
+				<element kind="rectangle" x="0" y="4" width="535" height="34" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF"/>
+				<element kind="textField" x="6" y="5" width="525" height="17" fontSize="11.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle">
+					<expression><![CDATA[$F{province_name} + "  (" + $F{province} + ")"]]></expression>
+				</element>
+				<element kind="textField" x="6" y="22" width="525" height="14" fontSize="8.0" forecolor="#1F4E79" vTextAlign="Middle">
+					<expression><![CDATA[("None".equals($F{provincial_tax_name}) ? "No provincial sales tax" : $F{provincial_tax_name})
++ "  --  GST " + new java.text.DecimalFormat("0.0##").format($F{gst_pct})
++ " pct + provincial " + new java.text.DecimalFormat("0.0##").format($F{provincial_pct})
++ " pct = " + new java.text.DecimalFormat("0.0##").format($F{combined_pct}) + " pct"]]></expression>
+				</element>
+			</band>
+		</groupHeader>
+		<groupFooter>
+			<band height="42">
+				<element kind="line" x="0" y="1" width="535" height="1" forecolor="#1F4E79"/>
+				<element kind="textField" x="4" y="4" width="96" height="14" fontSize="8.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle">
+					<expression><![CDATA[$F{province} + " total"]]></expression>
+				</element>
+				<element kind="textField" x="100" y="4" width="76" height="14" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_net}]]></expression>
+				</element>
+				<element kind="textField" x="176" y="4" width="76" height="14" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_taxable}]]></expression>
+				</element>
+				<element kind="textField" x="252" y="4" width="76" height="14" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_zero}]]></expression>
+				</element>
+				<element kind="textField" x="328" y="4" width="66" height="14" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_gst}]]></expression>
+				</element>
+				<element kind="textField" x="394" y="4" width="70" height="14" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_prov}]]></expression>
+				</element>
+				<element kind="textField" x="464" y="4" width="67" height="14" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_total}]]></expression>
+				</element>
+
+				<element kind="textField" x="4" y="20" width="230" height="12" fontSize="7.0" forecolor="#5B7DA6" vTextAlign="Middle">
+					<expression><![CDATA[$V{grp_stores} + " store(s)  --  taxable share "
++ (($V{grp_net} == null || $V{grp_net}.signum() == 0) ? "n/a"
+   : new java.text.DecimalFormat("0.0").format(100.0 * $V{grp_taxable}.doubleValue() / $V{grp_net}.doubleValue()) + " pct")]]></expression>
+				</element>
+				<element kind="textField" x="238" y="20" width="293" height="12" fontSize="7.0" italic="true" forecolor="#5B7DA6" hTextAlign="Right" vTextAlign="Middle">
+					<printWhenExpression><![CDATA["MB".equals($F{province}) && $F{yyyymm} != null && $F{yyyymm}.intValue() >= 201907]]></printWhenExpression>
+					<expression><![CDATA["RST reduced to 7 pct from 2019-07-01"]]></expression>
+				</element>
+				<element kind="line" x="0" y="38" width="535" height="1" forecolor="#D6E0EF"/>
+			</band>
+		</groupFooter>
+	</group>
+
+	<title height="56">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="535" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Sales Tax Remittance]]></text></element>
+		<element kind="textField" x="0" y="26" width="535" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["Sales tax collected in CAD for "
++ $P{p_yyyymm}.substring(0, 4) + "-" + $P{p_yyyymm}.substring(4)
++ ", by province and store. Province: " + ("All".equals($P{p_province}) ? "all" : $P{p_province})]]></expression>
+		</element>
+		<element kind="line" x="0" y="50" width="535" height="1" forecolor="#D6E0EF"/>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="535" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="4" y="0" width="96" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Store]]></text></element>
+		<element kind="staticText" x="100" y="0" width="76" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Net sales]]></text></element>
+		<element kind="staticText" x="176" y="0" width="76" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Taxable]]></text></element>
+		<element kind="staticText" x="252" y="0" width="76" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Zero-rated]]></text></element>
+		<element kind="staticText" x="328" y="0" width="66" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[GST]]></text></element>
+		<element kind="staticText" x="394" y="0" width="70" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Provincial]]></text></element>
+		<element kind="staticText" x="464" y="0" width="67" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Total]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="15">
+			<element kind="rectangle" x="0" y="0" width="535" height="15" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="tx_cell" x="4" y="0" width="96" height="15" vTextAlign="Middle">
+				<expression><![CDATA[$F{storenumber} + "  " + $F{region}]]></expression>
+			</element>
+			<element kind="textField" style="tx_cell" x="100" y="0" width="76" height="15" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{net_sales}]]></expression>
+			</element>
+			<element kind="textField" style="tx_cell" x="176" y="0" width="76" height="15" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{taxable_sales}]]></expression>
+			</element>
+			<element kind="textField" style="tx_cell" x="252" y="0" width="76" height="15" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{zero_rated_sales}]]></expression>
+			</element>
+			<element kind="textField" style="tx_cell" x="328" y="0" width="66" height="15" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{gst_collected}]]></expression>
+			</element>
+			<element kind="textField" style="tx_cell" x="394" y="0" width="70" height="15" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{provincial_tax_collected}]]></expression>
+			</element>
+			<element kind="textField" style="tx_cell" x="464" y="0" width="67" height="15" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{total_tax_collected}]]></expression>
+			</element>
+		</band>
+	</detail>
+
+	<pageFooter height="18">
+		<element kind="line" x="0" y="0" width="535" height="1" forecolor="#D6E0EF"/>
+		<element kind="textField" x="0" y="4" width="360" height="12" fontSize="8.0" forecolor="#5B7DA6">
+			<expression><![CDATA["Sales Tax Remittance -- amounts in CAD"]]></expression>
+		</element>
+		<element kind="textField" x="360" y="4" width="125" height="12" fontSize="8.0" forecolor="#5B7DA6" hTextAlign="Right">
+			<expression><![CDATA["Page " + $V{PAGE_NUMBER} + " of"]]></expression>
+		</element>
+		<element kind="textField" x="487" y="4" width="48" height="12" fontSize="8.0" forecolor="#5B7DA6" evaluationTime="Report">
+			<expression><![CDATA[" " + $V{PAGE_NUMBER}]]></expression>
+		</element>
+	</pageFooter>
+
+	<summary height="164">
+		<element kind="rectangle" x="0" y="4" width="535" height="18" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="4" y="4" width="96" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[All provinces]]></text></element>
+		<element kind="textField" x="100" y="4" width="76" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_net}]]></expression>
+		</element>
+		<element kind="textField" x="176" y="4" width="76" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_taxable}]]></expression>
+		</element>
+		<element kind="textField" x="252" y="4" width="76" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_zero}]]></expression>
+		</element>
+		<element kind="textField" x="328" y="4" width="66" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_gst}]]></expression>
+		</element>
+		<element kind="textField" x="394" y="4" width="70" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_prov}]]></expression>
+		</element>
+		<element kind="textField" x="464" y="4" width="67" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_total}]]></expression>
+		</element>
+
+		<element kind="line" x="0" y="30" width="535" height="1" forecolor="#D6E0EF"/>
+
+		<element kind="staticText" x="0" y="36" width="178" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Total tax remitted]]></text></element>
+		<element kind="staticText" x="179" y="36" width="178" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[GST portion]]></text></element>
+		<element kind="staticText" x="357" y="36" width="178" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Provincial portion]]></text></element>
+
+		<element kind="textField" x="0" y="58" width="178" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_total}]]></expression>
+		</element>
+		<element kind="textField" x="179" y="58" width="178" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_gst}]]></expression>
+		</element>
+		<element kind="textField" x="357" y="58" width="178" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_prov}]]></expression>
+		</element>
+
+		<element kind="line" x="0" y="100" width="535" height="1" forecolor="#D6E0EF"/>
+
+		<element kind="textField" x="0" y="106" width="535" height="16" fontSize="10.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA["Taxable share of net sales: "
++ (($V{rpt_net} == null || $V{rpt_net}.signum() == 0) ? "n/a"
+   : new java.text.DecimalFormat("0.0").format(100.0 * $V{rpt_taxable}.doubleValue() / $V{rpt_net}.doubleValue()) + " pct")]]></expression>
+		</element>
+		<element kind="textField" x="0" y="124" width="535" height="14" fontSize="8.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA["Remittance period " + $P{p_yyyymm}.substring(0, 4) + "-" + $P{p_yyyymm}.substring(4)
++ "  --  " + $V{REPORT_COUNT} + " store return(s) across "
++ ("All".equals($P{p_province}) ? "all provinces" : $P{p_province})]]></expression>
+		</element>
+		<element kind="staticText" x="0" y="140" width="535" height="14" fontSize="7.0" italic="true" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Rates shown are the rates in force in the remittance month and are the rates the tax was computed with.]]></text></element>
+	</summary>
+
+</jasperReport>

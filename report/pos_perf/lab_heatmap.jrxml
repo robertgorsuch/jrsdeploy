@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Workforce and Labour cockpit: scheduled hours by day of week and shift,
+     drawn as a TRUE heatmap.
+
+     TECHNIQUE, decided empirically (same discipline pnl_waterfall.jrxml used
+     for its bridge): the primary approach in the task brief - a JR7 crosstab
+     whose cell background is driven by a bucketed colour - is what shipped.
+     JR 7.0.6 accepts a crosstab as a band element under the Jackson element
+     kind name "crosstab" (confirmed against the JRChild subtype registry in
+     jasperreports-7.0.6.jar, where net.sf.jasperreports.crosstabs.JRCrosstab
+     is registered as kind "crosstab"), and the cell colour is carried by a
+     named report style with ascending conditionalStyle thresholds. The
+     documented fallback (a grouped bar chart) was NOT needed, so the tile
+     keeps the heatmap reading instead of degrading to bars.
+
+     Four details that the technique turns on, each found by compiling
+     against the JR 7.0.6 engine rather than by assumption:
+     1. The crosstab feeds off the MAIN dataset, so it must sit in the summary
+        band, not the title band. A crosstab with no datasetRun accumulates
+        rows as the report iterates; placed in the title band it would render
+        before a single row had been consumed and come out empty. Title band
+        therefore carries only the logo, title, subtitle; the crosstab and its
+        colour legend live in the summary band.
+     2. A crosstab measure's value element is named "expression", NOT
+        "valueExpression" as on a chart series. JRDesignCrosstabMeasure
+        rejects valueExpression outright (strict Jackson, 400 at deploy).
+     3. A bucket's orderByExpression CANNOT see report fields: putting
+        $F{dow_num} there fails validation with "Field not found : dow_num",
+        because the expression is evaluated after aggregation where only the
+        bucket value and the measures exist. The row bucket is therefore the
+        INTEGER day-of-week itself (which sorts correctly on its own) and the
+        row header maps that number back to a day name. The shift bucket
+        sorts Descending purely so the day starts with Opening and ends with
+        Closing rather than the other way round.
+     4. conditionalStyle entries are evaluated in document order and the FIRST
+        match wins; later matches do NOT override it. Written ascending
+        (195, 225, 250, 280) every cell above 195 came out in the 195 tier and
+        the grid was two flat colours - caught by sampling cell pixels out of
+        the rendered PDF, not by eye. The thresholds are therefore ordered
+        DESCENDING, highest first, and anything below the last one falls
+        through to the base style's lightest tier. A report-level style whose
+        conditionExpression references a crosstab measure variable ($V{sph})
+        does compile and is evaluated per cell - verified, not assumed.
+
+     Thresholds are literal, bucketed once against the real 14-row result
+     (this is a fixed 7x2 grid, so a dynamic bucketing scheme would be pure
+     over-engineering). Measured sales per labour hour, all history:
+     Monday 178.7, Sunday and Wednesday about 200, Tuesday 215,
+     Thursday 233, Friday 262, Saturday 292. Cuts at 195 / 225 / 250 / 280
+     put each of those on its own tier, ramping #D6E0EF to #0550DC in the
+     established series-blue family.
+
+     Cockpit archetype: no parameters, no input controls. -->
+<jasperReport name="lab_heatmap" language="java" pageWidth="1600" pageHeight="460" columnWidth="1580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT day_name, dow_num, shift_name,
+       DECIMAL(SUM(scheduled_hours), 10, 2) AS scheduled_hours,
+       DECIMAL(FLOAT8(SUM(allocated_sales)) / FLOAT8(NULLIF(SUM(scheduled_hours), 0)), 8, 2) AS sales_per_hour
+FROM dash_labour
+GROUP BY day_name, dow_num, shift_name
+ORDER BY dow_num, shift_name
+	]]></query>
+
+	<field name="day_name" class="java.lang.String"/>
+	<field name="dow_num" class="java.lang.Integer"/>
+	<field name="shift_name" class="java.lang.String"/>
+	<field name="scheduled_hours" class="java.math.BigDecimal"/>
+	<field name="sales_per_hour" class="java.math.BigDecimal"/>
+
+	<style name="heatCell" mode="Opaque" backcolor="#D6E0EF" forecolor="#1F4E79" fontSize="14.0" bold="true" hTextAlign="Center" vTextAlign="Middle">
+		<conditionalStyle backcolor="#0550DC" forecolor="#FFFFFF">
+			<conditionExpression><![CDATA[$V{sph} != null && $V{sph}.doubleValue() >= 280.0]]></conditionExpression>
+		</conditionalStyle>
+		<conditionalStyle backcolor="#3C7BE0" forecolor="#FFFFFF">
+			<conditionExpression><![CDATA[$V{sph} != null && $V{sph}.doubleValue() >= 250.0]]></conditionExpression>
+		</conditionalStyle>
+		<conditionalStyle backcolor="#7BA7E6" forecolor="#1F4E79">
+			<conditionExpression><![CDATA[$V{sph} != null && $V{sph}.doubleValue() >= 225.0]]></conditionExpression>
+		</conditionalStyle>
+		<conditionalStyle backcolor="#A9C6EC" forecolor="#1F4E79">
+			<conditionExpression><![CDATA[$V{sph} != null && $V{sph}.doubleValue() >= 195.0]]></conditionExpression>
+		</conditionalStyle>
+	</style>
+
+	<title height="62">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="1580" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Scheduled Hours by Day and Shift]]></text></element>
+		<element kind="staticText" x="0" y="26" width="1580" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Cell colour: sales per labour hour]]></text></element>
+	</title>
+
+	<summary height="378">
+		<element kind="crosstab" x="140" y="0" width="1300" height="326">
+			<rowGroup name="dow" width="180" totalPosition="None">
+				<bucket class="java.lang.Integer" order="Ascending">
+					<expression><![CDATA[$F{dow_num}]]></expression>
+				</bucket>
+				<header>
+					<element kind="textField" x="0" y="0" width="172" height="42" forecolor="#1F4E79" fontSize="12.0" bold="true" hTextAlign="Right" vTextAlign="Middle"><expression><![CDATA[($V{dow} == null || $V{dow}.intValue() < 0 || $V{dow}.intValue() > 6) ? "" : new String[]{"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"}[$V{dow}.intValue()]]]></expression></element>
+				</header>
+			</rowGroup>
+			<columnGroup name="shift_name" height="32" totalPosition="None">
+				<bucket class="java.lang.String" order="Descending">
+					<expression><![CDATA[$F{shift_name}]]></expression>
+				</bucket>
+				<header>
+					<element kind="textField" x="0" y="0" width="560" height="32" forecolor="#1F4E79" fontSize="12.0" bold="true" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA[$V{shift_name}]]></expression></element>
+				</header>
+			</columnGroup>
+			<measure name="hours" class="java.math.BigDecimal" calculation="Sum">
+				<expression><![CDATA[$F{scheduled_hours} == null ? java.math.BigDecimal.ZERO : $F{scheduled_hours}]]></expression>
+			</measure>
+			<measure name="sph" class="java.math.BigDecimal" calculation="Sum">
+				<expression><![CDATA[$F{sales_per_hour} == null ? java.math.BigDecimal.ZERO : $F{sales_per_hour}]]></expression>
+			</measure>
+			<cell width="560" height="42">
+				<contents>
+					<element kind="textField" style="heatCell" x="2" y="2" width="556" height="38" pattern="#,##0"><expression><![CDATA[$V{hours}]]></expression></element>
+				</contents>
+			</cell>
+			<headerCell>
+				<element kind="staticText" x="0" y="0" width="180" height="32" forecolor="#5B7DA6" fontSize="11.0" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Day]]></text></element>
+			</headerCell>
+		</element>
+
+		<element kind="staticText" x="140" y="342" width="180" height="18" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Sales per labour hour]]></text></element>
+
+		<element kind="rectangle" x="332" y="344" width="18" height="14" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="356" y="342" width="120" height="18" fontSize="9.0" forecolor="#5B7DA6" vTextAlign="Middle"><text><![CDATA[under 195]]></text></element>
+
+		<element kind="rectangle" x="486" y="344" width="18" height="14" mode="Opaque" backcolor="#A9C6EC" forecolor="#A9C6EC"/>
+		<element kind="staticText" x="510" y="342" width="120" height="18" fontSize="9.0" forecolor="#5B7DA6" vTextAlign="Middle"><text><![CDATA[195 to 225]]></text></element>
+
+		<element kind="rectangle" x="640" y="344" width="18" height="14" mode="Opaque" backcolor="#7BA7E6" forecolor="#7BA7E6"/>
+		<element kind="staticText" x="664" y="342" width="120" height="18" fontSize="9.0" forecolor="#5B7DA6" vTextAlign="Middle"><text><![CDATA[225 to 250]]></text></element>
+
+		<element kind="rectangle" x="794" y="344" width="18" height="14" mode="Opaque" backcolor="#3C7BE0" forecolor="#3C7BE0"/>
+		<element kind="staticText" x="818" y="342" width="120" height="18" fontSize="9.0" forecolor="#5B7DA6" vTextAlign="Middle"><text><![CDATA[250 to 280]]></text></element>
+
+		<element kind="rectangle" x="948" y="344" width="18" height="14" mode="Opaque" backcolor="#0550DC" forecolor="#0550DC"/>
+		<element kind="staticText" x="972" y="342" width="120" height="18" fontSize="9.0" forecolor="#5B7DA6" vTextAlign="Middle"><text><![CDATA[280 and over]]></text></element>
+	</summary>
+
+</jasperReport>

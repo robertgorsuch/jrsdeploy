@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Supplier Scorecard: the paginated drill target behind the supplier
+     scorecard tile on the Operations dashboard. One row per supplier with
+     lifetime performance (on-time percent, fill rate, lead days, spend, PO
+     count) alongside the same two figures recomputed for a single selected
+     quarter, so a reader can see whether a supplier's recent quarter is
+     running ahead of or behind its own history.
+
+     PARAMETER - p_quarter is a String, matching the drill contract the
+     sup_scorecard dashboard tile (Task 3, not yet built) will pass. It
+     defaults to "All" and must stay named exactly p_quarter - a later task
+     hyperlinks into this report by that name. "All" short-circuits the
+     quarter predicate via the sibling reports' 'All' = $P{...} OR ... idiom;
+     any other value is expected in "YYYYQn" form, e.g. "2020Q3".
+
+     DESIGN NOTES:
+
+     1. Quarter derivation is plain integer arithmetic, not ANSIDATE math.
+        purchase_orders.order_year and order_month are already INTEGER
+        columns (populated from YEAR()/MONTH() at build time), so
+        (order_month - 1) / 3 + 1 is safe integer division on X100 - this
+        report does not touch the ANSIDATE-arithmetic gotcha that applies to
+        date-typed columns elsewhere in this suite.
+
+     2. Lifetime columns (on-time pct, fill rate, lead days, spend, PO count)
+        come straight off the suppliers table, which already carries them as
+        precomputed aggregates over the supplier's full purchase_orders
+        history. They do not change when p_quarter changes - only the two
+        quarter-scoped correlated subqueries do.
+
+     3. A supplier with no purchase orders in the selected quarter returns
+        NULL from both correlated subqueries (COUNT(*) still returns 0, but
+        the on-time-pct subquery divides by NULLIF(COUNT(*),0) and so returns
+        NULL). Both cells carry blankWhenNull, and a companion textField
+        gated on quarter_po_count == 0 (or null) prints "No activity this
+        quarter" in the on-time-pct column instead of a blank cell, per the
+        null-handling precedent in rpt_churn_action_list.
+
+     4. whenNoDataType="AllSectionsNoDetail" - suppliers is a small,
+        unfiltered table (one row per distributor), so an empty result is
+        not expected in practice, but the branded page must still render if
+        it ever happens.
+
+     JR7-native throughout: <query language="SQL">, <element kind="...">,
+     correlated scalar subqueries inline in the main SELECT rather than a
+     subDataset, since each is a single value per outer row, not a
+     repeating child list. -->
+<jasperReport name="rpt_supplier_scorecard" language="java" pageWidth="842" pageHeight="595" orientation="Landscape" columnWidth="782" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" whenNoDataType="AllSectionsNoDetail">
+
+	<style name="sup_cell" fontSize="8.0" forecolor="#1F4E79"/>
+
+	<parameter name="p_quarter" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT s.supplier_name, s.category_focus, s.payment_terms,
+       DECIMAL(s.on_time_pct, 6, 2) AS lifetime_on_time_pct,
+       DECIMAL(s.avg_fill_rate_pct, 6, 2) AS lifetime_fill_rate_pct,
+       s.lead_time_days,
+       DECIMAL(s.total_spend, 14, 2) AS lifetime_spend,
+       s.purchase_orders AS lifetime_po_count,
+       (SELECT COUNT(*) FROM purchase_orders po WHERE po.supplier_name = s.supplier_name
+         AND ('All' = $P{p_quarter} OR (VARCHAR(po.order_year) || 'Q' || VARCHAR((po.order_month - 1) / 3 + 1)) = $P{p_quarter})) AS quarter_po_count,
+       (SELECT DECIMAL(100.0 * FLOAT8(COUNT(CASE WHEN po.on_time = 'Y' THEN 1 END)) / FLOAT8(NULLIF(COUNT(*), 0)), 6, 2)
+        FROM purchase_orders po WHERE po.supplier_name = s.supplier_name
+         AND ('All' = $P{p_quarter} OR (VARCHAR(po.order_year) || 'Q' || VARCHAR((po.order_month - 1) / 3 + 1)) = $P{p_quarter})) AS quarter_on_time_pct
+FROM suppliers s
+ORDER BY lifetime_on_time_pct ASC
+	]]></query>
+
+	<field name="supplier_name" class="java.lang.String"/>
+	<field name="category_focus" class="java.lang.String"/>
+	<field name="payment_terms" class="java.lang.String"/>
+	<field name="lifetime_on_time_pct" class="java.math.BigDecimal"/>
+	<field name="lifetime_fill_rate_pct" class="java.math.BigDecimal"/>
+	<field name="lead_time_days" class="java.lang.Integer"/>
+	<field name="lifetime_spend" class="java.math.BigDecimal"/>
+	<field name="lifetime_po_count" class="java.lang.Integer"/>
+	<field name="quarter_po_count" class="java.lang.Integer"/>
+	<field name="quarter_on_time_pct" class="java.math.BigDecimal"/>
+
+	<title height="56">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="782" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Supplier Scorecard]]></text></element>
+		<element kind="textField" x="0" y="26" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["Quarter: " + $P{p_quarter}]]></expression>
+		</element>
+		<element kind="line" x="0" y="50" width="782" height="1" forecolor="#D6E0EF"/>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="782" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="2" y="0" width="120" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Supplier]]></text></element>
+		<element kind="staticText" x="124" y="0" width="68" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Category Focus]]></text></element>
+		<element kind="staticText" x="194" y="0" width="36" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Terms]]></text></element>
+		<element kind="staticText" x="232" y="0" width="88" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Lifetime On-Time %]]></text></element>
+		<element kind="staticText" x="322" y="0" width="88" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Lifetime Fill Rate %]]></text></element>
+		<element kind="staticText" x="412" y="0" width="46" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Lead Days]]></text></element>
+		<element kind="staticText" x="460" y="0" width="82" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Lifetime Spend]]></text></element>
+		<element kind="staticText" x="544" y="0" width="56" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Lifetime POs]]></text></element>
+		<element kind="staticText" x="602" y="0" width="56" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Quarter POs]]></text></element>
+		<element kind="staticText" x="660" y="0" width="122" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Quarter On-Time %]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="16">
+			<element kind="rectangle" x="0" y="0" width="782" height="16" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="sup_cell" x="2" y="0" width="120" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{supplier_name}]]></expression>
+			</element>
+			<element kind="textField" style="sup_cell" x="124" y="0" width="68" height="16" vTextAlign="Middle" blankWhenNull="true">
+				<expression><![CDATA[$F{category_focus}]]></expression>
+			</element>
+			<element kind="textField" style="sup_cell" x="194" y="0" width="36" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{payment_terms}]]></expression>
+			</element>
+			<element kind="textField" style="sup_cell" x="232" y="0" width="88" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{lifetime_on_time_pct}]]></expression>
+			</element>
+			<element kind="textField" style="sup_cell" x="322" y="0" width="88" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{lifetime_fill_rate_pct}]]></expression>
+			</element>
+			<element kind="textField" style="sup_cell" x="412" y="0" width="46" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true">
+				<expression><![CDATA[$F{lead_time_days}]]></expression>
+			</element>
+			<element kind="textField" style="sup_cell" x="460" y="0" width="82" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{lifetime_spend}]]></expression>
+			</element>
+			<element kind="textField" style="sup_cell" x="544" y="0" width="56" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true">
+				<expression><![CDATA[$F{lifetime_po_count}]]></expression>
+			</element>
+			<element kind="textField" style="sup_cell" x="602" y="0" width="56" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true">
+				<expression><![CDATA[$F{quarter_po_count}]]></expression>
+			</element>
+
+			<element kind="textField" style="sup_cell" x="660" y="0" width="122" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{quarter_on_time_pct}]]></expression>
+				<printWhenExpression><![CDATA[$F{quarter_po_count} != null && $F{quarter_po_count}.intValue() > 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" x="660" y="0" width="122" height="16" fontSize="8.0" italic="true" forecolor="#5B7DA6" hTextAlign="Right" vTextAlign="Middle">
+				<expression><![CDATA["No activity this quarter"]]></expression>
+				<printWhenExpression><![CDATA[$F{quarter_po_count} == null || $F{quarter_po_count}.intValue() == 0]]></printWhenExpression>
+			</element>
+		</band>
+	</detail>
+
+	<pageFooter height="18">
+		<element kind="line" x="0" y="0" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="textField" x="0" y="4" width="500" height="12" fontSize="8.0" forecolor="#5B7DA6">
+			<expression><![CDATA["Supplier Scorecard -- lifetime on-time percent ascending, weakest first"]]></expression>
+		</element>
+		<element kind="textField" x="600" y="4" width="130" height="12" fontSize="8.0" forecolor="#5B7DA6" hTextAlign="Right">
+			<expression><![CDATA["Page " + $V{PAGE_NUMBER} + " of"]]></expression>
+		</element>
+		<element kind="textField" x="732" y="4" width="50" height="12" fontSize="8.0" forecolor="#5B7DA6" evaluationTime="Report">
+			<expression><![CDATA[" " + $V{PAGE_NUMBER}]]></expression>
+		</element>
+	</pageFooter>
+
+</jasperReport>

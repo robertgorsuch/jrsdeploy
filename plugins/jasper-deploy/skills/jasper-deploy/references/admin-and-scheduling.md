@@ -21,9 +21,12 @@ data-and-semantic-layer.md). Re-deploying an existing report without `-Overwrite
 fails `409 versions not match` (optimistic locking).
 
 Also:
-- **`-Overwrite`** updates **in place** via `?overwrite=true` (no delete) — so it
-  works even for a report that is a dashboard dashlet (a delete-then-create would
-  hit `403 resource.in.use`; see dashboards.md).
+- **`-Overwrite`** passes `?overwrite=true`. Observed on 10.0.0 this is NOT an
+  in-place update: the unit is re-created (version 0, new creationDate) and its
+  `inputControls` are dropped unless the body carries them (`deploy_report.ps1`
+  now carries the live list over). It is still refused with `403 resource.in.use`
+  while a dashboard references the report -- recompose with `-Replace` first
+  (G21, G61).
 - **SQL lint** (on by default): blocks a query that begins with `WITH`/non-`SELECT`
   before deploying (the JRS security validator rejects it at fill time anyway).
   `-SkipSqlLint` overrides.

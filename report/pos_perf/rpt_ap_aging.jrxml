@@ -1,0 +1,556 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Payables Aging and Payment Run: the paginated drill target behind the Days
+     to Pay by Terms tile on the Franchise Treasury console. Every unsettled
+     supplier invoice up to the as-of month, grouped by supplier, with a
+     per-bucket subtotal under each supplier, a supplier x bucket matrix, a
+     proposed payment run, the settlement speed by terms, and the early-pay
+     discount already banked.
+
+     PARAMETERS - p_asof is a yyyymm String (the shared LOV control), p_regions
+     is a java.util.Collection so the shared multi-select control feeds
+     $X{IN, ...}. Supplier invoices carry a region but no franchisee, so
+     p_franchisee is not a parameter here (same rule the Days to Pay tile
+     follows). An empty collection makes $X{IN} expand to a no-op TRUE.
+
+     DESIGN NOTES:
+
+     1. "Paid" is 0.00 on every printed row by construction: the query keeps
+        only status <> 'Paid', and the ledger books the settled amount only
+        when the invoice settles, so an unsettled invoice has nothing applied
+        against it and its balance equals the invoiced amount. The column is
+        kept to mirror the Receivables Aging statement and to show a reader
+        that no part payment has landed.
+
+     2. Bucket ordering. The summary crosstab buckets its columns on the CASE
+        rank the query computes (bucket_ord), not on the bucket label: a
+        crosstab bucket sorts on its own value, so bucketing on the label would
+        print 1-30 days / 31-60 days / 60+ days / Current alphabetically with
+        Current stranded on the right. The column header maps the rank back to
+        its label.
+
+     3. The payment run is a subDataset, because it applies a different filter
+        from the main query (due within 14 days of the as-of month end) and so
+        cannot be derived from the printed rows. The as-of month end comes from
+        the calendar, not from a hard-coded date, so the section follows the
+        as-of control. The early-pay discount rate is NOT invented: it is read
+        back from settlement history as the highest rate ever actually granted
+        on each terms class (2.00 pct on Net 30, 1.00 pct on Net 45 and Net
+        60), so the "discount available" column is the rate the supplier has
+        demonstrably honoured applied to the balance now falling due. Every
+        open invoice qualifies for a discount under those terms, so the
+        14-day window is what selects the run.
+
+     4. Three subDatasets are rendered as minimal crosstabs rather than as a
+        repeating text block. JasperReports' list and table components are not
+        registered on this JR7 classpath (the Jackson loader rejects
+        kind="list" outright), so a crosstab and a chart are the only
+        JR7-native ways to iterate a subDataset inside a band, and a crosstab
+        is the right shape for a labelled figure.
+
+     5. Deviation from the task brief's discounts SQL: the region predicate
+        was added. Every other block on the page honours the region control,
+        and without it the discounts figure would contradict the rest of the
+        page whenever a region is selected.
+
+     6. Summary layout. A band's DESIGN height may not exceed the printable
+        page height, and the four stacked blocks need roughly 670px at their
+        full row counts, so each crosstab is designed short and every element
+        after the first carries positionType="Float". A floating element is
+        pushed down by whatever the elements above it stretched, so the blocks
+        stay in order and the band grows past the page and splits, instead of
+        the crosstabs overprinting the captions below them.
+
+     JR7-native throughout: <query language="SQL">, <element kind="...">,
+     <element kind="crosstab"> with <rowGroup>/<columnGroup>/<measure>/<cell>,
+     sub-datasets as top-level <dataset name="..."> driven by <datasetRun>. -->
+<jasperReport name="rpt_ap_aging" language="java" pageWidth="842" pageHeight="595" orientation="Landscape" columnWidth="782" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" whenNoDataType="AllSectionsNoDetail">
+
+	<style name="ap_cell" fontSize="8.0" forecolor="#1F4E79"/>
+	<style name="ap_cell_aged" fontSize="8.0" forecolor="#1F4E79">
+		<conditionalStyle forecolor="#D9534F">
+			<conditionExpression><![CDATA[$F{days_overdue} != null && $F{days_overdue}.intValue() > 0]]></conditionExpression>
+		</conditionalStyle>
+	</style>
+	<style name="ap_grp_60" fontSize="9.0" forecolor="#1F4E79">
+		<conditionalStyle forecolor="#D9534F">
+			<conditionExpression><![CDATA[$V{grp_b60p} != null && $V{grp_b60p}.signum() > 0]]></conditionExpression>
+		</conditionalStyle>
+	</style>
+
+	<dataset name="ds_payrun">
+		<parameter name="p_asof" class="java.lang.String"/>
+		<parameter name="p_regions" class="java.util.Collection"/>
+		<query language="SQL"><![CDATA[
+SELECT a.supplier_name, a.payment_terms, INT4(COUNT(*)) AS invoices,
+       DECIMAL(SUM(a.balance), 14, 2) AS due_amount,
+       DECIMAL(SUM(a.balance) * MAX(r.rate), 14, 2) AS discount_available,
+       MIN(a.due_date) AS earliest_due
+FROM ap_invoices a
+JOIN (SELECT payment_terms, MAX(FLOAT8(discount_taken) / FLOAT8(NULLIF(amount, 0))) AS rate
+      FROM ap_invoices WHERE discount_taken > 0 GROUP BY payment_terms) r ON r.payment_terms = a.payment_terms
+WHERE a.status <> 'Paid' AND a.invoice_yyyymm <= INT4($P{p_asof})
+  AND a.due_date > (SELECT MAX(calendar_date) FROM date_dim WHERE yyyymm = INT4($P{p_asof}))
+  AND a.due_date <= (SELECT MAX(calendar_date) FROM date_dim WHERE yyyymm = INT4($P{p_asof})) + 14
+  AND $X{IN, a.region, p_regions}
+GROUP BY a.supplier_name, a.payment_terms
+ORDER BY a.supplier_name
+		]]></query>
+		<field name="supplier_name" class="java.lang.String"/>
+		<field name="payment_terms" class="java.lang.String"/>
+		<field name="invoices" class="java.lang.Integer"/>
+		<field name="due_amount" class="java.math.BigDecimal"/>
+		<field name="discount_available" class="java.math.BigDecimal"/>
+		<field name="earliest_due" class="java.sql.Date"/>
+	</dataset>
+
+	<dataset name="ds_dpo">
+		<parameter name="p_asof" class="java.lang.String"/>
+		<parameter name="p_regions" class="java.util.Collection"/>
+		<query language="SQL"><![CDATA[
+SELECT payment_terms, DECIMAL(AVG(FLOAT8(days_to_pay)), 6, 1) AS dpo_days
+FROM ap_invoices WHERE status = 'Paid' AND invoice_yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions}
+GROUP BY payment_terms ORDER BY payment_terms
+		]]></query>
+		<field name="payment_terms" class="java.lang.String"/>
+		<field name="dpo_days" class="java.math.BigDecimal"/>
+	</dataset>
+
+	<dataset name="ds_discounts">
+		<parameter name="p_asof" class="java.lang.String"/>
+		<parameter name="p_regions" class="java.util.Collection"/>
+		<query language="SQL"><![CDATA[
+SELECT DECIMAL(SUM(discount_taken), 14, 2) AS d
+FROM ap_invoices WHERE status = 'Paid' AND invoice_yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions}
+		]]></query>
+		<field name="d" class="java.math.BigDecimal"/>
+	</dataset>
+
+	<parameter name="p_asof" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT a.supplier_name, a.invoice_number, a.po_number, a.storenumber, a.region, a.invoice_date, a.due_date, a.payment_terms, a.status, a.aging_bucket,
+       a.amount, a.amount_paid, a.balance, a.days_overdue, s.payment_terms AS supplier_terms,
+       CASE a.aging_bucket WHEN 'Current' THEN 1 WHEN '1-30 days' THEN 2 WHEN '31-60 days' THEN 3 ELSE 4 END AS bucket_ord
+FROM ap_invoices a LEFT JOIN suppliers s ON s.supplier_name = a.supplier_name
+WHERE a.status <> 'Paid' AND a.invoice_yyyymm <= INT4($P{p_asof}) AND $X{IN, a.region, p_regions}
+ORDER BY a.supplier_name, bucket_ord DESC, a.due_date
+	]]></query>
+
+	<field name="supplier_name" class="java.lang.String"/>
+	<field name="invoice_number" class="java.lang.String"/>
+	<field name="po_number" class="java.lang.String"/>
+	<field name="storenumber" class="java.lang.Integer"/>
+	<field name="region" class="java.lang.String"/>
+	<field name="invoice_date" class="java.sql.Date"/>
+	<field name="due_date" class="java.sql.Date"/>
+	<field name="payment_terms" class="java.lang.String"/>
+	<field name="status" class="java.lang.String"/>
+	<field name="aging_bucket" class="java.lang.String"/>
+	<field name="amount" class="java.math.BigDecimal"/>
+	<field name="amount_paid" class="java.math.BigDecimal"/>
+	<field name="balance" class="java.math.BigDecimal"/>
+	<field name="days_overdue" class="java.lang.Integer"/>
+	<field name="supplier_terms" class="java.lang.String"/>
+	<field name="bucket_ord" class="java.lang.Integer"/>
+
+	<variable name="grp_balance" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="supplier">
+		<expression><![CDATA[$F{balance}]]></expression>
+	</variable>
+	<variable name="grp_current" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="supplier">
+		<expression><![CDATA["Current".equals($F{aging_bucket}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+	<variable name="grp_b1_30" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="supplier">
+		<expression><![CDATA["1-30 days".equals($F{aging_bucket}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+	<variable name="grp_b31_60" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="supplier">
+		<expression><![CDATA["31-60 days".equals($F{aging_bucket}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+	<variable name="grp_b60p" class="java.math.BigDecimal" calculation="Sum" resetType="Group" resetGroup="supplier">
+		<expression><![CDATA["60+ days".equals($F{aging_bucket}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+
+	<variable name="rpt_balance" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{balance}]]></expression>
+	</variable>
+	<variable name="rpt_overdue_bal" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA["Overdue".equals($F{status}) ? $F{balance} : java.math.BigDecimal.ZERO]]></expression>
+	</variable>
+	<variable name="rpt_open_n" class="java.lang.Integer" calculation="Sum">
+		<expression><![CDATA["Open".equals($F{status}) ? Integer.valueOf(1) : Integer.valueOf(0)]]></expression>
+	</variable>
+	<variable name="rpt_overdue_n" class="java.lang.Integer" calculation="Sum">
+		<expression><![CDATA["Overdue".equals($F{status}) ? Integer.valueOf(1) : Integer.valueOf(0)]]></expression>
+	</variable>
+
+	<group name="supplier">
+		<expression><![CDATA[$F{supplier_name}]]></expression>
+		<groupHeader>
+			<band height="22">
+				<element kind="rectangle" x="0" y="2" width="782" height="18" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF"/>
+				<element kind="textField" x="6" y="2" width="520" height="18" fontSize="10.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle">
+					<expression><![CDATA[$F{supplier_name}]]></expression>
+				</element>
+				<element kind="textField" x="532" y="2" width="244" height="18" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Right" vTextAlign="Middle">
+					<expression><![CDATA[$F{supplier_terms} == null ? "" : ("standard terms " + $F{supplier_terms})]]></expression>
+				</element>
+			</band>
+		</groupHeader>
+		<groupFooter>
+			<band height="38">
+				<element kind="line" x="0" y="1" width="782" height="1" forecolor="#1F4E79"/>
+				<element kind="staticText" x="282" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[Current]]></text></element>
+				<element kind="staticText" x="382" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[1-30 days]]></text></element>
+				<element kind="staticText" x="482" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[31-60 days]]></text></element>
+				<element kind="staticText" x="582" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[60+ days]]></text></element>
+				<element kind="staticText" x="682" y="3" width="98" height="12" fontSize="7.0" forecolor="#5B7DA6" hTextAlign="Right"><text><![CDATA[Total payable]]></text></element>
+
+				<element kind="textField" x="6" y="16" width="272" height="16" fontSize="9.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle">
+					<expression><![CDATA["Subtotal for " + $F{supplier_name}]]></expression>
+				</element>
+				<element kind="textField" x="282" y="16" width="98" height="16" fontSize="9.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_current}]]></expression>
+				</element>
+				<element kind="textField" x="382" y="16" width="98" height="16" fontSize="9.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_b1_30}]]></expression>
+				</element>
+				<element kind="textField" x="482" y="16" width="98" height="16" fontSize="9.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_b31_60}]]></expression>
+				</element>
+				<element kind="textField" style="ap_grp_60" x="582" y="16" width="98" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_b60p}]]></expression>
+				</element>
+				<element kind="textField" x="682" y="16" width="98" height="16" fontSize="9.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+					<expression><![CDATA[$V{grp_balance}]]></expression>
+				</element>
+				<element kind="line" x="0" y="36" width="782" height="1" forecolor="#D6E0EF"/>
+			</band>
+		</groupFooter>
+	</group>
+
+	<title height="56">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="782" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Payables Aging and Payment Run]]></text></element>
+		<element kind="textField" x="0" y="26" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["Unsettled supplier invoices in CAD, by supplier. Ledger as of 2020-12-31, invoices through "
++ $P{p_asof}.substring(0, 4) + "-" + $P{p_asof}.substring(4)
++ ". Regions: " + ($P{p_regions} == null || $P{p_regions}.isEmpty() ? "all"
+    : $P{p_regions}.toString().replace("[", "").replace("]", ""))]]></expression>
+		</element>
+		<element kind="line" x="0" y="50" width="782" height="1" forecolor="#D6E0EF"/>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="782" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="2" y="0" width="36" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Store]]></text></element>
+		<element kind="staticText" x="40" y="0" width="44" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Region]]></text></element>
+		<element kind="staticText" x="86" y="0" width="100" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Invoice]]></text></element>
+		<element kind="staticText" x="188" y="0" width="78" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Purchase order]]></text></element>
+		<element kind="staticText" x="268" y="0" width="44" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Terms]]></text></element>
+		<element kind="staticText" x="314" y="0" width="58" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Invoiced]]></text></element>
+		<element kind="staticText" x="374" y="0" width="58" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Due]]></text></element>
+		<element kind="staticText" x="434" y="0" width="58" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Bucket]]></text></element>
+		<element kind="staticText" x="494" y="0" width="76" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Amount]]></text></element>
+		<element kind="staticText" x="572" y="0" width="66" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Paid]]></text></element>
+		<element kind="staticText" x="640" y="0" width="76" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Balance]]></text></element>
+		<element kind="staticText" x="718" y="0" width="60" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Days overdue]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="16">
+			<element kind="rectangle" x="0" y="0" width="782" height="16" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="ap_cell" x="2" y="0" width="36" height="16" vTextAlign="Middle" pattern="#0">
+				<expression><![CDATA[$F{storenumber}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell" x="40" y="0" width="44" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{region}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell" x="86" y="0" width="100" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{invoice_number}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell" x="188" y="0" width="78" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{po_number}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell" x="268" y="0" width="44" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{payment_terms}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell" x="314" y="0" width="58" height="16" vTextAlign="Middle" pattern="yyyy-MM-dd">
+				<expression><![CDATA[$F{invoice_date}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell" x="374" y="0" width="58" height="16" vTextAlign="Middle" pattern="yyyy-MM-dd">
+				<expression><![CDATA[$F{due_date}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell_aged" x="434" y="0" width="58" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{aging_bucket}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell" x="494" y="0" width="76" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{amount}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell" x="572" y="0" width="66" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{amount_paid}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell" x="640" y="0" width="76" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00">
+				<expression><![CDATA[$F{balance}]]></expression>
+			</element>
+			<element kind="textField" style="ap_cell_aged" x="718" y="0" width="60" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0">
+				<expression><![CDATA[$F{days_overdue}]]></expression>
+			</element>
+		</band>
+	</detail>
+
+	<pageFooter height="18">
+		<element kind="line" x="0" y="0" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="textField" x="0" y="4" width="500" height="12" fontSize="8.0" forecolor="#5B7DA6">
+			<expression><![CDATA["Payables Aging and Payment Run -- amounts in CAD"]]></expression>
+		</element>
+		<element kind="textField" x="600" y="4" width="130" height="12" fontSize="8.0" forecolor="#5B7DA6" hTextAlign="Right">
+			<expression><![CDATA["Page " + $V{PAGE_NUMBER} + " of"]]></expression>
+		</element>
+		<element kind="textField" x="732" y="4" width="50" height="12" fontSize="8.0" forecolor="#5B7DA6" evaluationTime="Report">
+			<expression><![CDATA[" " + $V{PAGE_NUMBER}]]></expression>
+		</element>
+	</pageFooter>
+
+	<summary height="314">
+		<element kind="line" x="0" y="4" width="782" height="1" forecolor="#D6E0EF"/>
+
+		<element kind="staticText" x="0" y="8" width="195" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Total payable]]></text></element>
+		<element kind="staticText" x="196" y="8" width="195" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Overdue balance]]></text></element>
+		<element kind="staticText" x="392" y="8" width="195" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Open invoices]]></text></element>
+		<element kind="staticText" x="588" y="8" width="194" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Overdue invoices]]></text></element>
+
+		<element kind="textField" x="0" y="30" width="195" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_balance}]]></expression>
+		</element>
+		<element kind="textField" x="196" y="30" width="195" height="36" fontSize="26.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0">
+			<expression><![CDATA[$V{rpt_overdue_bal}]]></expression>
+		</element>
+		<element kind="textField" x="392" y="30" width="195" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_open_n}]]></expression>
+		</element>
+		<element kind="textField" x="588" y="30" width="194" height="36" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_overdue_n}]]></expression>
+		</element>
+
+		<element kind="line" x="0" y="72" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="0" y="78" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Outstanding balance by supplier and aging bucket (CAD)]]></text></element>
+
+		<element kind="crosstab" x="0" y="96" width="782" height="52">
+			<dataset/>
+			<rowGroup name="ct_supplier" totalPosition="End" width="222">
+				<bucket class="java.lang.String"><expression><![CDATA[$F{supplier_name}]]></expression></bucket>
+				<header>
+					<element kind="textField" x="4" y="0" width="214" height="16" fontSize="8.0" forecolor="#1F4E79" vTextAlign="Middle">
+						<expression><![CDATA[$V{ct_supplier}]]></expression>
+					</element>
+				</header>
+				<totalHeader>
+					<element kind="staticText" x="4" y="0" width="214" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle"><text><![CDATA[All suppliers]]></text></element>
+				</totalHeader>
+			</rowGroup>
+			<columnGroup name="ct_bucket" totalPosition="End" height="18">
+				<bucket class="java.lang.Integer"><expression><![CDATA[$F{bucket_ord}]]></expression></bucket>
+				<header>
+					<element kind="textField" x="0" y="0" width="112" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" mode="Opaque" backcolor="#1F4E79">
+						<expression><![CDATA[$V{ct_bucket}.intValue() == 1 ? "Current" : ($V{ct_bucket}.intValue() == 2 ? "1-30 days" : ($V{ct_bucket}.intValue() == 3 ? "31-60 days" : "60+ days"))]]></expression>
+					</element>
+				</header>
+				<totalHeader>
+					<element kind="staticText" x="0" y="0" width="112" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" mode="Opaque" backcolor="#1F4E79"><text><![CDATA[Total]]></text></element>
+				</totalHeader>
+			</columnGroup>
+			<measure name="ct_balance" calculation="Sum" class="java.math.BigDecimal">
+				<expression><![CDATA[$F{balance}]]></expression>
+			</measure>
+			<cell width="112" height="16">
+				<contents mode="Transparent">
+					<element kind="textField" x="0" y="0" width="108" height="16" fontSize="8.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{ct_balance}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+			<cell width="112" height="16" rowTotalGroup="ct_supplier">
+				<contents mode="Opaque" backcolor="#D6E0EF">
+					<element kind="textField" x="0" y="0" width="108" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{ct_balance}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+			<cell width="112" height="16" columnTotalGroup="ct_bucket">
+				<contents mode="Opaque" backcolor="#D6E0EF">
+					<element kind="textField" x="0" y="0" width="108" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{ct_balance}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+			<cell width="112" height="16" rowTotalGroup="ct_supplier" columnTotalGroup="ct_bucket">
+				<contents mode="Opaque" backcolor="#D6E0EF">
+					<element kind="textField" x="0" y="0" width="108" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{ct_balance}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+		</element>
+
+		<element kind="staticText" x="0" y="156" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" positionType="Float"><text><![CDATA[Payment run -- unsettled invoices falling due within 14 days of the as-of month end, with the early-pay discount available at each supplier's terms]]></text></element>
+
+		<element kind="crosstab" x="0" y="174" width="782" height="52" positionType="Float">
+			<dataset>
+				<datasetRun subDataset="ds_payrun">
+					<parameter name="p_asof"><expression><![CDATA[$P{p_asof}]]></expression></parameter>
+					<parameter name="p_regions"><expression><![CDATA[$P{p_regions}]]></expression></parameter>
+				</datasetRun>
+			</dataset>
+			<rowGroup name="pr_supplier" totalPosition="End" width="222">
+				<bucket class="java.lang.String"><expression><![CDATA[$F{supplier_name} + "  (" + $F{payment_terms} + ")"]]></expression></bucket>
+				<header>
+					<element kind="textField" x="4" y="0" width="214" height="16" fontSize="8.0" forecolor="#1F4E79" vTextAlign="Middle">
+						<expression><![CDATA[$V{pr_supplier}]]></expression>
+					</element>
+				</header>
+				<totalHeader>
+					<element kind="staticText" x="4" y="0" width="214" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle"><text><![CDATA[Proposed payment run]]></text></element>
+				</totalHeader>
+			</rowGroup>
+			<columnGroup name="pr_col" totalPosition="None" height="18">
+				<bucket class="java.lang.String"><expression><![CDATA[""]]></expression></bucket>
+				<header>
+					<element kind="rectangle" x="0" y="0" width="560" height="18" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+					<element kind="staticText" x="0" y="0" width="90" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Invoices]]></text></element>
+					<element kind="staticText" x="94" y="0" width="160" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Balance falling due]]></text></element>
+					<element kind="staticText" x="258" y="0" width="160" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Discount available]]></text></element>
+					<element kind="staticText" x="422" y="0" width="138" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Earliest due date]]></text></element>
+				</header>
+			</columnGroup>
+			<measure name="pr_invoices" calculation="Sum" class="java.lang.Integer">
+				<expression><![CDATA[$F{invoices}]]></expression>
+			</measure>
+			<measure name="pr_due" calculation="Sum" class="java.math.BigDecimal">
+				<expression><![CDATA[$F{due_amount}]]></expression>
+			</measure>
+			<measure name="pr_discount" calculation="Sum" class="java.math.BigDecimal">
+				<expression><![CDATA[$F{discount_available}]]></expression>
+			</measure>
+			<measure name="pr_earliest" calculation="Lowest" class="java.sql.Date">
+				<expression><![CDATA[$F{earliest_due}]]></expression>
+			</measure>
+			<cell width="560" height="16">
+				<contents mode="Transparent">
+					<element kind="textField" x="0" y="0" width="90" height="16" fontSize="8.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0">
+						<expression><![CDATA[$V{pr_invoices}]]></expression>
+					</element>
+					<element kind="textField" x="94" y="0" width="160" height="16" fontSize="8.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{pr_due}]]></expression>
+					</element>
+					<element kind="textField" x="258" y="0" width="160" height="16" fontSize="8.0" forecolor="#5CB85C" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{pr_discount}]]></expression>
+					</element>
+					<element kind="textField" x="422" y="0" width="138" height="16" fontSize="8.0" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="yyyy-MM-dd">
+						<expression><![CDATA[$V{pr_earliest}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+			<whenNoDataCell>
+				<element kind="staticText" x="0" y="0" width="782" height="16" fontSize="8.0" forecolor="#5B7DA6" vTextAlign="Middle"><text><![CDATA[No unsettled invoice falls due within 14 days of this month end.]]></text></element>
+			</whenNoDataCell>
+			<cell width="560" height="16" rowTotalGroup="pr_supplier">
+				<contents mode="Opaque" backcolor="#D6E0EF">
+					<element kind="textField" x="0" y="0" width="90" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0">
+						<expression><![CDATA[$V{pr_invoices}]]></expression>
+					</element>
+					<element kind="textField" x="94" y="0" width="160" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{pr_due}]]></expression>
+					</element>
+					<element kind="textField" x="258" y="0" width="160" height="16" fontSize="8.0" bold="true" forecolor="#5CB85C" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{pr_discount}]]></expression>
+					</element>
+					<element kind="textField" x="422" y="0" width="138" height="16" fontSize="8.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="yyyy-MM-dd">
+						<expression><![CDATA[$V{pr_earliest}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+		</element>
+
+		<element kind="staticText" x="0" y="236" width="400" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" positionType="Float"><text><![CDATA[Average days from invoice to settlement, by supplier terms]]></text></element>
+		<element kind="staticText" x="400" y="236" width="360" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" positionType="Float"><text><![CDATA[Early-pay discount already banked]]></text></element>
+
+		<element kind="crosstab" x="60" y="254" width="280" height="52" positionType="Float">
+			<dataset>
+				<datasetRun subDataset="ds_dpo">
+					<parameter name="p_asof"><expression><![CDATA[$P{p_asof}]]></expression></parameter>
+					<parameter name="p_regions"><expression><![CDATA[$P{p_regions}]]></expression></parameter>
+				</datasetRun>
+			</dataset>
+			<rowGroup name="dpo_terms" totalPosition="None" width="140">
+				<bucket class="java.lang.String"><expression><![CDATA[$F{payment_terms}]]></expression></bucket>
+				<header>
+					<element kind="textField" x="4" y="0" width="132" height="16" fontSize="8.0" forecolor="#1F4E79" vTextAlign="Middle">
+						<expression><![CDATA[$V{dpo_terms}]]></expression>
+					</element>
+				</header>
+			</rowGroup>
+			<columnGroup name="dpo_col" totalPosition="None" height="18">
+				<bucket class="java.lang.String"><expression><![CDATA[""]]></expression></bucket>
+				<header>
+					<element kind="staticText" x="0" y="0" width="140" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle" mode="Opaque" backcolor="#1F4E79"><text><![CDATA[Days to pay]]></text></element>
+				</header>
+			</columnGroup>
+			<measure name="dpo_days" calculation="Sum" class="java.math.BigDecimal">
+				<expression><![CDATA[$F{dpo_days}]]></expression>
+			</measure>
+			<cell width="140" height="16">
+				<contents mode="Transparent">
+					<element kind="textField" x="0" y="0" width="136" height="16" fontSize="8.0" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0.0">
+						<expression><![CDATA[$V{dpo_days}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+		</element>
+
+		<element kind="crosstab" x="440" y="254" width="280" height="40" positionType="Float">
+			<dataset>
+				<datasetRun subDataset="ds_discounts">
+					<parameter name="p_asof"><expression><![CDATA[$P{p_asof}]]></expression></parameter>
+					<parameter name="p_regions"><expression><![CDATA[$P{p_regions}]]></expression></parameter>
+				</datasetRun>
+			</dataset>
+			<rowGroup name="disc_row" totalPosition="None" width="160">
+				<bucket class="java.lang.String"><expression><![CDATA["Discounts taken to date"]]></expression></bucket>
+				<header>
+					<element kind="textField" x="4" y="0" width="152" height="16" fontSize="8.0" forecolor="#1F4E79" vTextAlign="Middle">
+						<expression><![CDATA[$V{disc_row}]]></expression>
+					</element>
+				</header>
+			</rowGroup>
+			<columnGroup name="disc_col" totalPosition="None" height="18">
+				<bucket class="java.lang.String"><expression><![CDATA[""]]></expression></bucket>
+				<header>
+					<element kind="staticText" x="0" y="0" width="120" height="18" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle" mode="Opaque" backcolor="#1F4E79"><text><![CDATA[Amount]]></text></element>
+				</header>
+			</columnGroup>
+			<measure name="disc_amt" calculation="Sum" class="java.math.BigDecimal">
+				<expression><![CDATA[$F{d}]]></expression>
+			</measure>
+			<cell width="120" height="16">
+				<contents mode="Transparent">
+					<element kind="textField" x="0" y="0" width="116" height="16" fontSize="8.0" bold="true" forecolor="#5CB85C" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0">
+						<expression><![CDATA[$V{disc_amt}]]></expression>
+					</element>
+					<box><pen lineWidth="0.5" lineColor="#D6E0EF"/></box>
+				</contents>
+			</cell>
+		</element>
+	</summary>
+
+</jasperReport>

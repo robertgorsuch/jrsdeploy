@@ -110,7 +110,7 @@ foreach ($d in $m.dashlets) {
     $depLabel = if ($d.title) { $d.title } else { $rname }
     try {
         $depOut = & (Join-Path $PSScriptRoot "deploy_report.ps1") -Jrxml $jrxml -TargetUri $uri `
-            -Label $depLabel -DataSourceUri $ds -Overwrite `
+            -Label $depLabel -DataSourceUri $ds -Overwrite -Apply `
             -ServerUrl $jrs.ServerUrl -User $jrs.User -Password $jrs.Password 2>&1 | Out-String
         $row.deploy = "OK"
     } catch {
@@ -145,7 +145,8 @@ if ($bad) { throw "$($bad.Count) dashlet(s) failed; not composing" }
 
 if ($Compose) {
     Write-Host "--- composing dashboard ---"
-    $ca = @{ Manifest = $Manifest; ServerUrl = $jrs.ServerUrl; User = $jrs.User; Password = $jrs.Password }
+    # compose plans by default (1.3.0); this pipeline IS the explicit deploy+compose command
+    $ca = @{ Manifest = $Manifest; Apply = $true; ServerUrl = $jrs.ServerUrl; User = $jrs.User; Password = $jrs.Password }
     if ($AutoGrid) { $ca.AutoGrid = $true }
     & (Join-Path $PSScriptRoot "compose_dashboard.ps1") @ca
 }

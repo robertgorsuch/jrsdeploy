@@ -75,6 +75,76 @@ Describe "Resolve-JrsConfig named environment profiles" {
     }
 }
 
+Describe "Test-JrsResource / Assert-JrsResource (Invoke-JrsGet mocked)" {
+    $fake = [pscustomobject]@{ ServerUrl = 'http://jrs.example:8080'; User = 'u'; Password = 'p'; Env = 'stage' }
+
+    It "returns `$true only on HTTP 200" {
+        Mock Invoke-JrsGet { [pscustomobject]@{ Code = '200'; Body = '{"uri":"/x"}' } }
+        (Test-JrsResource -Jrs $fake -Uri '/reports/x') | Should Be $true
+    }
+    It "returns `$false on 404 (Invoke-JrsGet does not throw, so a bare truthiness test would pass)" {
+        Mock Invoke-JrsGet { [pscustomobject]@{ Code = '404'; Body = 'resource.does.not.exist' } }
+        (Test-JrsResource -Jrs $fake -Uri '/reports/missing') | Should Be $false
+    }
+    It "returns `$false on a non-200 success-ish code (204) and on 000 (no response)" {
+        Mock Invoke-JrsGet { [pscustomobject]@{ Code = '000'; Body = '' } }
+        (Test-JrsResource -Jrs $fake -Uri '/reports/x') | Should Be $false
+    }
+    It "prefixes a missing leading slash" {
+        Mock Invoke-JrsGet { param($Jrs, $Uri) [pscustomobject]@{ Code = $(if ($Uri -eq '/reports/x') { '200' } else { '404' }); Body = '' } }
+        (Test-JrsResource -Jrs $fake -Uri 'reports/x') | Should Be $true
+    }
+    It "Assert-JrsResource returns the URI when it exists" {
+        Mock Invoke-JrsGet { [pscustomobject]@{ Code = '200'; Body = '{}' } }
+        Assert-JrsResource -Jrs $fake -Uri '/reports/x' | Should Be '/reports/x'
+    }
+    It "Assert-JrsResource throws naming server, env, uri and code when absent" {
+        Mock Invoke-JrsGet { [pscustomobject]@{ Code = '404'; Body = '' } }
+        $err = $null
+        try { Assert-JrsResource -Jrs $fake -Uri '/reports/missing' -What 'report unit' } catch { $err = $_.Exception.Message }
+        $err | Should Match 'report unit not found'
+        $err | Should Match 'jrs\.example:8080'
+        $err | Should Match 'env stage'
+        $err | Should Match '/reports/missing'
+        $err | Should Match 'HTTP 404'
+    }
+}
+
+Describe "Get-JrsDashboardsReferencing (REST mocked)" {
+    $fake = [pscustomobject]@{ ServerUrl = 'http://jrs.example:8080'; User = 'u'; Password = 'p'; Env = '' }
+    $script:dashA = '{"uri":"/d/a","resources":[{"name":"t","type":"reportUnit","resource":{"resourceReference":{"uri":"/reports/x","version":0}}}]}'
+    $script:dashB = '{"uri":"/d/b","resources":[{"name":"t","type":"reportUnit","resource":{"resourceReference":{"uri":"/reports/y","version":0}}}]}'
+
+    It "lists only the dashboards whose descriptor references the uri" {
+        Mock Invoke-JrsRest { [pscustomobject]@{ Code = '200'; Body = '{"resourceLookup":[{"uri":"/d/a","resourceType":"dashboard"},{"uri":"/d/b","resourceType":"dashboard"}]}' } }
+        Mock Invoke-JrsGet { param($Jrs, $Uri) [pscustomobject]@{ Code = '200'; Body = $(if ($Uri -eq '/d/a') { $script:dashA } else { $script:dashB }) } }
+        $hits = @(Get-JrsDashboardsReferencing -Jrs $fake -Uri '/reports/x')
+        $hits.Count | Should Be 1
+        $hits[0]    | Should Be '/d/a'
+    }
+    It "returns an empty array when the search fails or nothing matches" {
+        Mock Invoke-JrsRest { [pscustomobject]@{ Code = '500'; Body = 'boom' } }
+        @(Get-JrsDashboardsReferencing -Jrs $fake -Uri '/reports/x').Count | Should Be 0
+        Mock Invoke-JrsRest { [pscustomobject]@{ Code = '200'; Body = '{"resourceLookup":[{"uri":"/d/b"}]}' } }
+        Mock Invoke-JrsGet { [pscustomobject]@{ Code = '200'; Body = $script:dashB } }
+        @(Get-JrsDashboardsReferencing -Jrs $fake -Uri '/reports/x').Count | Should Be 0
+    }
+}
+
+Describe "New-JrsDeployResult (deploy_report.ps1 pipeline object)" {
+    It "has exactly the documented properties with sane defaults" {
+        $r = New-JrsDeployResult -Uri '/reports/x' -Code 201
+        ($r.PSObject.Properties.Name -join ',') | Should Be 'Uri,Code,Status,ControlsAttached,Message'
+        $r.Uri | Should Be '/reports/x'
+        $r.Code | Should Be '201'
+        $r.Status | Should Be 'OK'
+        $r.ControlsAttached | Should Be 0
+    }
+    It "rejects a Status outside OK|FAIL" {
+        { New-JrsDeployResult -Uri '/x' -Status 'MAYBE' } | Should Throw
+    }
+}
+
 Describe "Assert-JrsOk" {
     It "returns the response on a 2xx code" {
         $r = Assert-JrsOk -Response @{ Code = '200'; Body = 'ok' } -Operation 'x'

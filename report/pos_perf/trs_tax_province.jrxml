@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Franchise Treasury console: sales tax collected, year to date within the
+     cutoff year, by province. Twelve categories in a 580px tile, so the plot is
+     horizontal (plot orientation="Horizontal") and the province codes sit on the
+     vertical axis. Rows arrive largest-first from the query and render top-down
+     in that order (verified on the rasterized output), so the tile reads as
+     "one dominant province, then a long tail". Single series, legend off.
+     Tax rows carry a region but no franchisee, so only the region clause is
+     emitted. Chart is in the title band -> evaluationTime="Report".
+
+     The title is a ReportExecution hyperlink into the Sales Tax Remittance
+     statement (same flattened JR7 <hyperlinkParameter name="..."><expression>
+     form the sibling tiles use; the JR6 <hyperlinkParameterExpression> child is
+     not used). The target is a single-month page, so it is handed the console's
+     as-of month as p_yyyymm and the "All" sentinel as p_province. It takes
+     neither p_regions nor p_franchisee, so neither is passed. p_asof and
+     p_yyyymm are both Strings, so the value crosses unchanged. -->
+<jasperReport name="trs_tax_province" language="java" pageWidth="600" pageHeight="420" columnWidth="580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_asof" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_franchisee" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT province, DECIMAL(SUM(total_tax_collected), 14, 2) AS tax_collected
+FROM tax_collected_monthly WHERE yr = INT4($P{p_asof}) / 100 AND yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions}
+GROUP BY province ORDER BY 2 DESC
+	]]></query>
+
+	<field name="province" class="java.lang.String"/>
+	<field name="tax_collected" class="java.math.BigDecimal"/>
+
+	<title height="400">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="textField" x="0" y="2" width="580" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" linkType="ReportExecution" linkTarget="Blank">
+			<expression><![CDATA["Tax Collected by Province"]]></expression>
+			<hyperlinkParameter name="_report"><expression><![CDATA["/reports/pos_perf/rpt_tax_remittance"]]></expression></hyperlinkParameter>
+			<hyperlinkParameter name="p_yyyymm"><expression><![CDATA[$P{p_asof}]]></expression></hyperlinkParameter>
+			<hyperlinkParameter name="p_province"><expression><![CDATA["All"]]></expression></hyperlinkParameter>
+		</element>
+		<element kind="textField" x="0" y="26" width="580" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA["Year to date in CAD. Ledger as of 2020-12-31, invoices through " + $P{p_asof}.substring(0, 4) + "-" + $P{p_asof}.substring(4)]]></expression></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="580" height="352" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Tax collected"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{province}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{tax_collected}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true">
+				<seriesColor order="0" color="#0550DC"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

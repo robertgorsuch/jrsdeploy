@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Store Network cockpit: store count by lease expiry year, from
+     store_assets directly (no aggregate table - the spec's direct-read
+     list). Single series, bar colour is a constant #0A4CAD, category axis is
+     the expiry year itself (EXTRACT(YEAR FROM ...) sorts correctly on its
+     own, same reasoning lab_heatmap.jrxml used for its dow_num bucket, so no
+     separate label-mapping step is needed here the way lab_heatmap needed one
+     for day names).
+
+     Field types: expiry_year from EXTRACT(YEAR FROM ...) is declared
+     java.lang.Integer (the conventional JDBC mapping for an EXTRACT(YEAR)
+     result); stores is a bare COUNT(*) scalar, java.lang.Long per this
+     suite's established convention (chn_kpi.jrxml's scored_customers,
+     net_map.jrxml's competitors_2km).
+
+     JR7-native bar plot (showTickMarks/showTickLabels per
+     jr7-valid-elements.md 3c). Chart in the title band -> evaluationTime=
+     "Report". Cockpit archetype: no parameters.
+
+     Verified in the warehouse 2026-08-25: 2023 x4, 2024 x169, 2028 x154,
+     2029 x2, 2030 x1 - 2024 and 2028 are the two years needing real
+     attention, 2023 and 2029-2030 are edge cases. -->
+<jasperReport name="net_lease" pageWidth="800" pageHeight="360" columnWidth="780" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT EXTRACT(YEAR FROM lease_expiry) AS expiry_year, COUNT(*) AS stores
+FROM store_assets
+GROUP BY EXTRACT(YEAR FROM lease_expiry)
+ORDER BY expiry_year
+	]]></query>
+
+	<field name="expiry_year" class="java.lang.Integer"/>
+	<field name="stores" class="java.lang.Long"/>
+
+	<title height="340">
+		<element kind="image" x="0" y="0" width="40" height="40" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="780" height="22" fontSize="14.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Lease Expiries by Year]]></text></element>
+		<element kind="staticText" x="0" y="24" width="780" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Store count by lease expiry year]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="44" width="780" height="290" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Stores"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{expiry_year} == null ? "Unknown" : String.valueOf($F{expiry_year})]]></categoryExpression>
+					<valueExpression><![CDATA[$F{stores} == null ? Long.valueOf(0) : $F{stores}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true">
+				<seriesColor order="0" color="#0A4CAD"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

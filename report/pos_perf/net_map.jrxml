@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Store Network cockpit: 330 stores plotted by real coordinates, marker size
+     = sales per square foot, colour split for stores with 2+ competitors
+     within 2 km.
+
+     TECHNIQUE, decided empirically per the task brief's 3-tier discovery
+     budget (2 redeploy cycles max before settling, matching the
+     waterfall/heatmap precedent):
+
+     TIER 1 TRIED AND REJECTED - community jr:map (Map component,
+     xmlns:jr="http://jasperreports.sourceforge.net/jasperreports/components").
+     Two things converge to rule it out:
+       1. LOCAL: jasperreports-lib (the machine's JR_LIB_DIR) has only
+          jasperreports-7.0.6, jasperreports-charts-7.0.6, jfreechart-1.5.6,
+          jasperreports-barcode4j-7.0.6, jasperreports-pdf-7.0.6 and their
+          transitive deps (confirmed by directory listing) - there is no
+          jasperreports-components jar, which is the module that registers the
+          Map/List/Table component namespace's XML digester rules and the
+          MapComponent class itself. A jr:map jrxml therefore fails to even
+          load locally: "Unable to load report" with no further Jackson detail
+          (JRXmlLoader.loadXML throws before reaching a property-level error,
+          because the namespace has no registered rule set at all, not because
+          a property name is wrong). This directly contradicts the task
+          brief's assumption that this component is "locally compilable" -
+          that assumption held for the OTHER community components already in
+          this suite (chart, crosstab, spiderChart, barcode4j), which DO have
+          their jars here, but not for jr:map specifically.
+       2. SERVER: two discrete redeploy attempts (the full budget) both got
+          the exact opaque 400 "JRXML.content is invalid" that
+          fusion-pro-gotchas.md documents as the signature of an
+          unavailable/misregistered component, not a fixable property typo -
+          attempt 1 used a bare jr:markerDataset with direct
+          markerLatitudeExpression/markerLongitudeExpression children; attempt
+          2 wrapped those in a jr:markerSeries (the more common form seen in
+          Jaspersoft Studio-generated samples). Neither changed the error text
+          at all, which is the tell: a real property-name mismatch on a
+          present component surfaces a specific Jackson complaint (as seen
+          throughout this suite for JR7-native elements), while a genuinely
+          absent/unregistered component namespace surfaces this same generic
+          400 regardless of what is inside it. Combined with finding 1 (the
+          component plainly is not part of this environment's assembled
+          jar set, matching reports.md's Community/Pro tables, neither of
+          which lists Map/List/Table anywhere in this repo), the conclusion is
+          that jr:map is not available on this STAGE server either, not that
+          the schema was wrong. Budget spent: exactly 2 redeploy cycles, as
+          allowed.
+
+     TIER 2 SHIPPED - JFreeChart chartType="bubble" (dataset kind="xyz"),
+     JR7-native element kind="chart" terse form, no extra jar beyond the
+     jfreechart-1.5.6.jar already proven in this suite (pnl_waterfall.jrxml,
+     lab_format.jrxml). Compiles locally, entirely offline, once two local
+     issues were fixed (see COMMENT GOTCHA and FIELD-NAME GOTCHA below) - no
+     server round trip needed at all to validate the XML shape, which is
+     exactly the payoff the brief called out for a true community component,
+     in sharp contrast to tier 1's two burned server round trips for a
+     component this environment does not have. Longitude on x, latitude on y,
+     sales_per_sqft on z (bubble radius) - a closer literal match to the
+     brief's "bubble size from sales per square foot" than a flat xyScatter
+     dataset (kind="xy") could give, since kind="xy" carries no third value to
+     size a marker by at all; the brief's prose asked for bubble sizing
+     specifically, so "bubble" (kind="xyz") is the type that actually
+     delivers it, and it sits in the same xy-chart family the brief pointed
+     at. The colour split for the "ring" condition (competitors_2km >= 2) is
+     two series over the SAME query, each returning null x/y/z for rows
+     outside its own condition (the JR-native way to partition one row source
+     into two rendered series, same technique pnl_waterfall.jrxml uses for
+     its bridge bars) - this is an XY dataset, not a category dataset, so the
+     seriesColor first-registration hazard documented in pnl_waterfall.jrxml
+     does NOT apply here (that hazard is specific to category datasets where
+     a series occupies a row-indexed slot; an xy/xyz dataset's series are
+     static design-time declarations that each independently walk every row,
+     so a null point on one series's first few rows does not shift any other
+     series's colour binding). Loses the basemap (no province/street imagery
+     under the points), which is the known and accepted trade-off of this
+     tier per the brief.
+
+     COMMENT GOTCHA hit while building this exact file: the first local
+     compile of the tier-2 draft failed with the same bare "Unable to load
+     report" as tier 1, no cause attached (JR7's JacksonReportLoader logs the
+     real cause via SLF4J and JRXmlLoader re-throws without it; this
+     environment's slf4j-api has no bound provider, so the log line is
+     silently dropped - recovered it only by adding slf4j-simple-1.8.0-beta4
+     to the classpath for one throwaway debug run). The real cause:
+     com.ctc.wstx.exc.WstxParsingException, reporting that a literal double
+     hyphen is not allowed inside an XML comment - an earlier draft of THIS
+     header comment used exactly that as a prose dash, the same suite-wide
+     gotcha called out in the task brief. Left in as a live example of why
+     that check matters even for a file whose component tier turned out to
+     need none of the doubted schema work.
+
+     FIELD-NAME GOTCHA, found immediately after fixing the comment: the first
+     real compile attempt then gave a genuine, precise Jackson complaint
+     exactly as fusion-pro-gotchas.md predicts for a present community
+     component - UnrecognizedPropertyException on JRDesignXyzSeries naming
+     its five real properties: xvalueExpression, yvalueExpression,
+     zvalueExpression, seriesExpression, itemHyperlink. The lower-case v
+     matters - xValueExpression (capital V, the form used on every category
+     dataset series in this suite, e.g. pnl_waterfall's valueExpression) is
+     REJECTED on an xyz series; JRDesignXyzSeries's Jackson bean names come
+     from its getX/Y/Zvalue() getters, not getX/Y/ZValue(). Corrected and
+     recompiled clean. (Confirmed later, while building net_income_scatter.jrxml,
+     that the plain xy series class - JRDesignXySeries - has the exact same
+     lower-case-v naming; it is not an xyz-only quirk.)
+
+     RENDER-SCALE GOTCHA, found on the first run-to-PDF: the raw
+     sales_per_sqft value (roughly 700 to 1300) fed straight into
+     zvalueExpression rendered as a SOLID BLUE RECTANGLE filling the entire
+     plot, not visible bubbles - JFreeChart's bubble renderer here treats z as
+     bubble AREA in the same data-space units as the x/y axes (radius =
+     sqrt(z / pi)), not auto-scaled pixels, so a store at z=1000 draws a
+     circle of radius about 17.8 DEGREES on a plot whose full longitude span
+     is about 90 degrees; with 330 overlapping circles that size the union
+     covers the whole rectangle. Divided sales_per_sqft by 1000 in both
+     series' zvalueExpression (BigDecimal.divide, scale 4, HALF_UP) to bring
+     z into the roughly 0.7-1.3 range, giving bubble radii of roughly
+     0.5-0.6 degrees - small, distinct dots at this plot's scale. This is a
+     display-only transform; the underlying values are unaffected everywhere
+     else in the suite (net_sqft_format.jrxml shows the real, unscaled
+     numbers).
+
+     Standard stores: #0550DC (established series-blue). Ringed stores (2+
+     competitors within 2 km, 26 of 330 - verified 2026-08-25): #F0AD4E (the
+     existing amber/warning accent already used for gauge zones in
+     exec_margin_dial.jrxml / exec_yoy_dial.jrxml), so the break-out reads as
+     an alert rather than just a second neutral category. Chart lives in the
+     title band, hence evaluationTime="Report". Cockpit archetype: no
+     parameters. -->
+<jasperReport name="net_map" pageWidth="880" pageHeight="680" columnWidth="860" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT s.storenumber, s.storename, s.latitude, s.longitude, s.region,
+       DECIMAL(FLOAT8(s.total_sales) / FLOAT8(NULLIF(s.square_feet, 0)), 10, 2) AS sales_per_sqft,
+       (SELECT COUNT(*) FROM competitor_locations c WHERE c.storenumber = s.storenumber AND c.distance_km <= 2) AS competitors_2km
+FROM stores s
+	]]></query>
+
+	<field name="storenumber" class="java.lang.Integer"/>
+	<field name="storename" class="java.lang.String"/>
+	<field name="latitude" class="java.math.BigDecimal"/>
+	<field name="longitude" class="java.math.BigDecimal"/>
+	<field name="region" class="java.lang.String"/>
+	<field name="sales_per_sqft" class="java.math.BigDecimal"/>
+	<field name="competitors_2km" class="java.lang.Long"/>
+
+	<title height="660">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="860" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Store Network]]></text></element>
+		<element kind="staticText" x="0" y="26" width="860" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Marker size = sales per square foot; ringed markers have 2 or more competitors within 2 km]]></text></element>
+
+		<element kind="chart" chartType="bubble" x="0" y="48" width="860" height="600" showLegend="true" evaluationTime="Report">
+			<dataset kind="xyz">
+				<series>
+					<seriesExpression><![CDATA["Standard"]]></seriesExpression>
+					<xvalueExpression><![CDATA[($F{competitors_2km} != null && $F{competitors_2km}.longValue() >= 2) ? null : $F{longitude}]]></xvalueExpression>
+					<yvalueExpression><![CDATA[($F{competitors_2km} != null && $F{competitors_2km}.longValue() >= 2) ? null : $F{latitude}]]></yvalueExpression>
+					<zvalueExpression><![CDATA[($F{competitors_2km} != null && $F{competitors_2km}.longValue() >= 2) ? null : ($F{sales_per_sqft} == null ? java.math.BigDecimal.ZERO : $F{sales_per_sqft}.divide(new java.math.BigDecimal(1000), 4, java.math.RoundingMode.HALF_UP))]]></zvalueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["2+ Competitors within 2 km"]]></seriesExpression>
+					<xvalueExpression><![CDATA[($F{competitors_2km} != null && $F{competitors_2km}.longValue() >= 2) ? $F{longitude} : null]]></xvalueExpression>
+					<yvalueExpression><![CDATA[($F{competitors_2km} != null && $F{competitors_2km}.longValue() >= 2) ? $F{latitude} : null]]></yvalueExpression>
+					<zvalueExpression><![CDATA[($F{competitors_2km} != null && $F{competitors_2km}.longValue() >= 2) ? ($F{sales_per_sqft} == null ? java.math.BigDecimal.ZERO : $F{sales_per_sqft}.divide(new java.math.BigDecimal(1000), 4, java.math.RoundingMode.HALF_UP)) : null]]></zvalueExpression>
+				</series>
+			</dataset>
+			<plot>
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#F0AD4E"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

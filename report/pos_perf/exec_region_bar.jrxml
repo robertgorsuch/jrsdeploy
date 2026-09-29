@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Executive Overview: Net Sales by Region. Plain solid brand-blue bar (single
+     series; no chart customizer, since PROD lacks com.actian.jasper.GradientTrendCustomizer
+     on its classpath, so bar color is set via explicit seriesColor order=0 instead)
+     plus direct value labels (barPlot showLabels; see jr7-valid-elements.md 3c).
+     JR7-native.
+
+     NAVY THEME: full-bleed #000032 background band with the margins folded into
+     the element coordinates (see exec_kpi_strip.jrxml); title white, caption
+     #8AC6F8, series Tech Blue #3C91FF; chart element and plot are opaque #000032
+     so JFreeChart paints no white chart/plot area. JFreeChart draws axis, legend
+     and item-label text BLACK by default, which is invisible on navy; the
+     axis/legend/item-label colours below are set explicitly. Contrary to the
+     plan's assumption, JRCategoryAxisFormat / JRValueAxisFormat DO expose
+     categoryAxis*/valueAxis* colour attributes on the plot and JRChart exposes
+     legendColor / legendBackgroundColor, and a <itemLabel> child is valid on a
+     barPlot - all four verified against jasperreports-charts-7.0.6 and by a
+     local compile, so no showTickLabels="false" fallback is needed. -->
+<jasperReport name="exec_region_bar" language="java" pageWidth="950" pageHeight="422" columnWidth="950" leftMargin="0" rightMargin="0" topMargin="0" bottomMargin="0">
+	<query language="SQL"><![CDATA[SELECT storeregion, sales_ext FROM dash_region ORDER BY sales_ext DESC]]></query>
+
+	<field name="storeregion" class="java.lang.String"/>
+	<field name="sales_ext" class="java.math.BigDecimal"/>
+
+	<background height="422">
+		<element kind="rectangle" x="0" y="0" width="950" height="422" mode="Opaque" backcolor="#000032" forecolor="#000032"/>
+	</background>
+
+	<title height="72">
+		<element kind="image" x="20" y="20" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="20" y="20" width="910" height="24" fontSize="17.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center"><text><![CDATA[Net Sales by Region]]></text></element>
+		<element kind="staticText" x="20" y="46" width="910" height="14" fontSize="9.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Regional performance -- Jan 2019 - Dec 2020]]></text></element>
+	</title>
+
+	<summary height="330">
+		<element kind="chart" chartType="bar" x="20" y="0" width="910" height="330" mode="Opaque" backcolor="#000032" legendColor="#FFFFFF" legendBackgroundColor="#000032" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Net Sales"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{storeregion}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{sales_ext}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" showLabels="true" backcolor="#000032"
+			      categoryAxisLabelColor="#8AC6F8" categoryAxisTickLabelColor="#8AC6F8" categoryAxisLineColor="#26305A"
+			      valueAxisLabelColor="#8AC6F8" valueAxisTickLabelColor="#8AC6F8" valueAxisLineColor="#26305A">
+				<itemLabel color="#FFFFFF" backgroundColor="#000032"/>
+				<seriesColor order="0" color="#3C91FF"/>
+			</plot>
+		</element>
+	</summary>
+
+</jasperReport>

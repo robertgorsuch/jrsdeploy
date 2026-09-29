@@ -203,6 +203,208 @@ def lint_sql(query: str):
     return []
 
 
+# --- SQL dialect pre-compile check (--dialect) ------------------------------
+DIALECTS = ("postgres", "x100")
+
+# Aggregates whose OVER(... ORDER BY ...) / inner ORDER BY forms X100 rejects.
+_AGG_FUNCS = ("sum", "avg", "count", "min", "max", "string_agg", "array_agg",
+              "listagg", "json_agg", "jsonb_agg", "group_concat", "stddev",
+              "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp",
+              "bool_and", "bool_or", "every")
+_AGG_RE = "|".join(_AGG_FUNCS)
+
+
+def _strip_strings(sql: str) -> str:
+    """Blank out single-quoted string literals (keeping length/newlines) so a
+    quote-bound ';' or '--' cannot masquerade as SQL syntax."""
+    import re
+    return re.sub(r"'(?:[^']|'')*'",
+                  lambda m: "'" + " " * (len(m.group(0)) - 2) + "'", sql)
+
+
+def _comments(sql: str):
+    """Yield (start, end, text) of every SQL comment, string-literal aware."""
+    s = _strip_strings(sql)
+    i, n = 0, len(s)
+    while i < n:
+        if s.startswith("--", i):
+            j = s.find("\n", i)
+            j = n if j < 0 else j
+            yield i, j, sql[i:j]
+            i = j
+        elif s.startswith("/*", i):
+            j = s.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            yield i, j, sql[i:j]
+            i = j
+        else:
+            i += 1
+
+
+def _strip_comments(sql: str) -> str:
+    out, last = [], 0
+    for a, b, _t in _comments(sql):
+        out.append(sql[last:a]); out.append(" " * (b - a)); last = b
+    out.append(sql[last:])
+    return "".join(out)
+
+
+def _line_of(sql: str, pos: int) -> int:
+    return sql.count("\n", 0, pos) + 1
+
+
+def _balanced_span(s: str, open_idx: int):
+    """Index just past the ')' matching the '(' at open_idx, or len(s)."""
+    depth = 0
+    for k in range(open_idx, len(s)):
+        c = s[k]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return k + 1
+    return len(s)
+
+
+def _from_aliases(body: str) -> set:
+    """Best-effort: table names + aliases introduced by FROM/JOIN clauses of
+    ONE select body (nested parens are skipped so subqueries do not leak)."""
+    import re
+    # remove nested parenthesised parts so only this level's FROM is scanned
+    flat, depth, buf = [], 0, []
+    for c in body:
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            continue
+        if depth == 0:
+            flat.append(c)
+    flat = "".join(flat)
+    names = set()
+    for m in re.finditer(r"(?is)\b(?:from|join)\s+([\w.\"]+)(?:\s+(?:as\s+)?(?!on\b|where\b|join\b|inner\b|left\b|right\b|full\b|cross\b|group\b|order\b|limit\b|having\b|union\b)(\w+))?", flat):
+        names.add(m.group(1).split(".")[-1].strip('"').lower())
+        if m.group(2):
+            names.add(m.group(2).lower())
+        # comma-separated FROM lists: "from a x, b y"
+    for m in re.finditer(r"(?is)\bfrom\s+([^;]*?)(?:\bwhere\b|\bgroup\b|\border\b|\bhaving\b|\blimit\b|$)", flat):
+        for part in m.group(1).split(","):
+            toks = part.strip().split()
+            if not toks or toks[0].lower() in ("select",):
+                continue
+            names.add(toks[0].split(".")[-1].strip('"').lower())
+            if len(toks) >= 2 and toks[-1].lower() not in ("on", "using"):
+                names.add(toks[-1].strip('"').lower())
+    return names
+
+
+def check_dialect_sql(query: str, dialect: str = "postgres"):
+    """Static pre-compile checks for a report query against a target SQL dialect.
+
+    Returns [(level, rule, message), ...]; level is "ERROR" or "WARN". The
+    postgres dialect performs no checks (unchanged legacy behaviour). The x100
+    (Actian Vector / Avalanche) dialect refuses constructs the X100 engine
+    rejects at run time -- which JR compiles happily and JRS surfaces only as a
+    fill-time HTTP 400:
+
+      x100-ordered-aggregate   : STRING_AGG/ARRAY_AGG/LISTAGG(... ORDER BY ...),
+                                 WITHIN GROUP (ORDER BY ...), and any aggregate
+                                 with OVER (... ORDER BY ...) -- X100 has no
+                                 ordered aggregate windows.
+      x100-correlated-aggregate: a column of an OUTER alias referenced inside an
+                                 aggregate call in a subquery -- X100 does not
+                                 allow correlated variables in aggregates.
+      x100-semicolon-in-comment: ';' inside a -- or /* */ comment -- the
+                                 admiral sql.ps1 run-file splitter has no comment
+                                 awareness and would cut the statement there.
+
+    Limits (regex heuristics, no full parser): the correlated-aggregate rule
+    only sees qualified references (alias.col) whose alias is introduced by an
+    enclosing FROM/JOIN and NOT by the subquery's own FROM/JOIN; unqualified
+    outer columns, CTE-scoped names and lateral joins are not detected, and a
+    subquery alias that shadows an outer alias is treated as local (no
+    finding). The ordered-aggregate rule matches call text, so an ORDER BY
+    in a nested subquery passed to an aggregate can produce a false positive
+    -- use --allow-dialect-warnings to downgrade a known-good query.
+    """
+    import re
+    findings = []
+    if dialect not in DIALECTS:
+        raise ValueError(f"unknown dialect '{dialect}' (choose from {', '.join(DIALECTS)})")
+    if dialect != "x100":
+        return findings
+
+    # 1. ';' inside comments
+    for a, _b, text in _comments(query):
+        if ";" in text:
+            findings.append(("ERROR", "x100-semicolon-in-comment",
+                             f"line {_line_of(query, a)}: ';' inside a SQL comment; the "
+                             "admiral sql.ps1 run-file splitter is not comment-aware and "
+                             "splits the statement there. Remove the ';' from the comment."))
+
+    code = _strip_comments(_strip_strings(query))
+
+    # 2. ordered aggregates / ordered aggregate windows
+    for m in re.finditer(r"(?is)\b(" + _AGG_RE + r")\s*\(", code):
+        end = _balanced_span(code, m.end() - 1)
+        args = code[m.end():end - 1]
+        if re.search(r"(?is)\border\s+by\b", args):
+            findings.append(("ERROR", "x100-ordered-aggregate",
+                             f"line {_line_of(code, m.start())}: {m.group(1).upper()}(... ORDER BY ...) -- "
+                             "X100 has no ordered aggregates; drop the ORDER BY or "
+                             "pre-sort in a subquery."))
+        tail = code[end:]
+        om = re.match(r"(?is)\s*(?:filter\s*\([^)]*\)\s*)?over\s*\(", tail)
+        if om:
+            oend = _balanced_span(tail, om.end() - 1)
+            if re.search(r"(?is)\border\s+by\b", tail[om.end():oend - 1]):
+                findings.append(("ERROR", "x100-ordered-aggregate",
+                                 f"line {_line_of(code, m.start())}: {m.group(1).upper()}(...) OVER (... ORDER BY ...) -- "
+                                 "X100 does not support ordered aggregate windows (running "
+                                 "totals); use a self-join or a ranking function instead."))
+    for m in re.finditer(r"(?is)\bwithin\s+group\s*\(", code):
+        findings.append(("ERROR", "x100-ordered-aggregate",
+                         f"line {_line_of(code, m.start())}: WITHIN GROUP (ORDER BY ...) -- "
+                         "X100 has no ordered-set aggregates."))
+
+    # 3. correlated column references inside aggregates in subqueries
+    outer_aliases = _from_aliases(code)
+    for m in re.finditer(r"(?is)\(\s*select\b", code):
+        end = _balanced_span(code, m.start())
+        body = code[m.start() + 1:end - 1]
+        local = _from_aliases(body)
+        # aliases visible from enclosing scopes = everything outside this body
+        enclosing = _from_aliases(code[:m.start()] + " " + code[end:]) | outer_aliases
+        for am in re.finditer(r"(?is)\b(" + _AGG_RE + r")\s*\(", body):
+            aend = _balanced_span(body, am.end() - 1)
+            args = body[am.end():aend - 1]
+            for ref in re.finditer(r"\b(\w+)\.(\w+)\b", args):
+                alias = ref.group(1).lower()
+                if alias in enclosing and alias not in local:
+                    findings.append(("ERROR", "x100-correlated-aggregate",
+                                     f"line {_line_of(code, m.start() + am.start())}: "
+                                     f"{am.group(1).upper()}(...) references outer alias "
+                                     f"'{ref.group(1)}.{ref.group(2)}' inside a subquery -- X100 "
+                                     "does not allow correlated variables in aggregates; join "
+                                     "the outer table into the subquery or aggregate first."))
+                    break
+    return findings
+
+
+def report_dialect_findings(findings, allow_warnings=False, stream=None) -> bool:
+    """Print findings; return True when the caller must refuse (an ERROR that
+    was not downgraded by allow_warnings)."""
+    stream = stream or sys.stderr
+    refuse = False
+    for level, rule, msg in findings:
+        shown = "WARN" if (allow_warnings and level == "ERROR") else level
+        stream.write(f"SQL {shown} [{rule}]: {msg}\n")
+        if level == "ERROR" and not allow_warnings:
+            refuse = True
+    return refuse
+
+
 # --- column introspection via psql -------------------------------------------
 def introspect(query: str, host, port, user, db) -> list:
     """Return [(column_name, udt_name), ...] for the query's result set."""
@@ -218,7 +420,12 @@ def introspect(query: str, host, port, user, db) -> list:
     )
     cmd = ["psql", "-h", host, "-p", str(port), "-U", user, "-d", db,
            "-v", "ON_ERROR_STOP=1", "-q", "-X", "-f", "-"]
-    proc = subprocess.run(cmd, input=script, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, input=script, capture_output=True, text=True)
+    except FileNotFoundError:
+        sys.stderr.write("psql not found on PATH; column introspection needs the "
+                         "PostgreSQL client (use --check-only for SQL checks alone).\n")
+        sys.exit(2)
     if proc.returncode != 0:
         sys.stderr.write("psql introspection failed:\n" + proc.stderr + "\n")
         sys.exit(2)
@@ -829,6 +1036,18 @@ def main():
                          "/reports/x/rpt_files/Label_main_jrxml, or a jrxml uploaded "
                          "with upload_file.ps1. Runs on the parent connection; "
                          "p=COL passes a field value as parameter p.")
+    ap.add_argument("--dialect", default="postgres", choices=list(DIALECTS),
+                    help="target SQL dialect of the datasource (default: postgres, "
+                         "no extra checks). x100 (Actian Vector/Avalanche) runs a "
+                         "static pre-compile check and REFUSES the scaffold on "
+                         "ordered aggregates / ordered aggregate windows, correlated "
+                         "columns inside aggregates in subqueries, and ';' inside "
+                         "SQL comments. Heuristic; see check_dialect_sql.")
+    ap.add_argument("--allow-dialect-warnings", action="store_true",
+                    help="downgrade --dialect ERRORs to warnings and scaffold anyway")
+    ap.add_argument("--check-only", action="store_true",
+                    help="run the SQL lint + --dialect check on the query and exit "
+                         "(0 clean, 1 findings); no psql, no file written")
     args = ap.parse_args()
 
     subreport = None
@@ -877,11 +1096,26 @@ def main():
     else:
         query = args.query
 
+    generic = lint_sql(query)
+    for level, msg in generic:
+        sys.stderr.write(f"SQL {level}: {msg}\n")
+    dialect_findings = check_dialect_sql(query, args.dialect)
+    refuse = report_dialect_findings(dialect_findings, args.allow_dialect_warnings)
+
+    if args.check_only:
+        n_err = sum(1 for lv, _m in generic if lv == "ERROR") + \
+            (sum(1 for lv, _r, _m in dialect_findings if lv == "ERROR") if not args.allow_dialect_warnings else 0)
+        n_all = len(generic) + len(dialect_findings)
+        print(f"check-only ({args.dialect}): {n_all} finding(s), {n_err} error(s)")
+        sys.exit(1 if n_err else 0)
+
+    if refuse:
+        sys.stderr.write(f"ERROR: query fails the {args.dialect} dialect check; "
+                         "nothing written. Fix the SQL or pass --allow-dialect-warnings.\n")
+        sys.exit(3)
+
     if "PGPASSWORD" not in os.environ:
         sys.stderr.write("WARNING: PGPASSWORD not set; psql may prompt or fail.\n")
-
-    for level, msg in lint_sql(query):
-        sys.stderr.write(f"SQL {level}: {msg}\n")
 
     # introspect against a copy with $P{..} replaced by literals so psql can run it
     introspect_q = substitute_params(query, params) if params else query

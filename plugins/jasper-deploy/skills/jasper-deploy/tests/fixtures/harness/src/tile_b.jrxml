@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Harness fixture tile B (JR7-native). Deployed to STAGE /reports/_smoke/harness/tile_b for the recorded-server harness. -->
+<jasperReport name="tile_b" language="java" pageWidth="400" pageHeight="300" columnWidth="360" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20">
+	<query language="SQL"><![CDATA[
+SELECT product_family, COUNT(*)::int AS class_count
+FROM product_class
+GROUP BY product_family
+ORDER BY class_count DESC
+	]]></query>
+	<field name="product_family" class="java.lang.String"/>
+	<field name="class_count" class="java.lang.Integer"/>
+	<title height="30">
+		<element kind="staticText" x="0" y="0" width="360" height="24" fontSize="14.0" bold="true" hTextAlign="Center"><text><![CDATA[Tile B: product classes by family]]></text></element>
+	</title>
+	<detail>
+		<band height="14">
+			<element kind="textField" x="0" y="0" width="240" height="14" fontSize="9.0"><expression><![CDATA[$F{product_family}]]></expression></element>
+			<element kind="textField" x="240" y="0" width="120" height="14" fontSize="9.0" hTextAlign="Right" pattern="#,##0"><expression><![CDATA[$F{class_count}]]></expression></element>
+		</band>
+	</detail>
+</jasperReport>

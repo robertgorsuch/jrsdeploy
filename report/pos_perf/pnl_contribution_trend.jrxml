@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Store Profit and Budget cockpit: monthly store contribution margin,
+     actual against the two budget versions. Three line series over the same
+     month category. The reforecast series is null for every month before
+     2020-04 (that budget version did not exist yet); JFreeChart simply leaves
+     the line to start at 2020-04, which is the intended reading - the point
+     where the plan was rebased onto reality.
+     JR7-native line plot: showLines/showShapes are the valid flags
+     (showTickMarks/showTickLabels are REJECTED on a line plot per
+     jr7-valid-elements.md 3d), and the month labels are rotated with
+     categoryAxisTickLabelRotation, the same attribute exec_trend.jrxml uses.
+     Chart is in the title band, so evaluationTime="Report". -->
+<jasperReport name="pnl_contribution_trend" language="java" pageWidth="1000" pageHeight="440" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT p.yyyymm, CAST(p.yyyymm AS VARCHAR(6)) AS ym,
+       DECIMAL(100.0 * FLOAT8(SUM(p.store_contribution)) / FLOAT8(NULLIF(SUM(p.net_sales), 0)), 6, 2) AS actual_pct,
+       DECIMAL(100.0 * FLOAT8(SUM(o.budget_store_contribution)) / FLOAT8(NULLIF(SUM(o.budget_net_sales), 0)), 6, 2) AS original_pct,
+       DECIMAL(100.0 * FLOAT8(SUM(r.budget_store_contribution)) / FLOAT8(NULLIF(SUM(r.budget_net_sales), 0)), 6, 2) AS reforecast_pct
+FROM store_pnl_monthly p
+LEFT JOIN store_budget_monthly o ON o.storenumber = p.storenumber AND o.yyyymm = p.yyyymm AND o.budget_version = 'Original'
+LEFT JOIN store_budget_monthly r ON r.storenumber = p.storenumber AND r.yyyymm = p.yyyymm AND r.budget_version = 'Reforecast Q2 2020'
+WHERE p.trading_status = 'Trading'
+GROUP BY p.yyyymm ORDER BY p.yyyymm
+	]]></query>
+
+	<field name="yyyymm" class="java.lang.Integer"/>
+	<field name="ym" class="java.lang.String"/>
+	<field name="actual_pct" class="java.math.BigDecimal"/>
+	<field name="original_pct" class="java.math.BigDecimal"/>
+	<field name="reforecast_pct" class="java.math.BigDecimal"/>
+
+	<title height="420">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="980" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Store Contribution Margin Trend]]></text></element>
+		<element kind="staticText" x="0" y="26" width="980" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Percent of net sales, trading stores -- actual against the original plan and the Q2 2020 reforecast]]></text></element>
+
+		<element kind="chart" chartType="line" x="0" y="52" width="980" height="368" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Actual"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{actual_pct}]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Original budget"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{original_pct}]]></valueExpression>
+				</series>
+				<series>
+					<seriesExpression><![CDATA["Reforecast"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{reforecast_pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showLines="true" showShapes="true" categoryAxisTickLabelRotation="-45">
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#1DB6C0"/>
+				<seriesColor order="2" color="#0A4CAD"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

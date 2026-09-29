@@ -508,3 +508,274 @@ question (`jobsHistoricalData`, `licenseFeatures`, `contexts`, ...). The WADL
 is generated from the running code, so it is ground truth for that exact
 target; this section only predicts it. The serverInfo service itself is
 identical across 9.0.0-10.1.0 (9.0 ref p.18; 10.1 ref p.18).
+
+---
+
+## Gotchas: REST / PowerShell 5.1 / curl / file upload
+
+Moved here from `gotchas.md` (which keeps the symptom index). Entry ids (G33...)
+are stable so the index links resolve. Each entry: Symptom / Cause / Fix /
+Handled-by (the script or flag that already deals with it). ASCII only.
+
+### G33
+- Symptom: re-deploying an existing report fails `409 versions not match`.
+- Cause: optimistic locking.
+- Fix: `-Overwrite` (`?overwrite=true`). Observed 10.0.0: this RE-CREATES the unit (version 0, inputControls dropped unless the body carries them -- deploy_report carries them since 1.2.1) and still 403s under a dashboard lock (G21).
+- Handled-by: `deploy_report.ps1 -Overwrite`.
+
+### G34
+- Symptom: an async report-execution POST fails `400 serialization.error`.
+- Cause: on Windows an inline `-d '{...}'` gets its quotes mangled by PowerShell/curl.
+- Fix: write the JSON to a file and pass `--data "@req.json"`.
+- Handled-by: `run_report_async.ps1` / `schedule_job.ps1` / `manage_alert.ps1` all
+  pass the body from a file.
+
+### G35
+- Symptom: an attribute call `405`s; the base URL is silently dropped.
+- Cause: PowerShell 5.1 treats `?` as a variable-name char, so `"$base?name"`
+  evaluates `$base?name` (undefined) and drops `$base`.
+- Fix: build the path with braces: `"${base}?name=..."`.
+- Handled-by: `manage_attributes.ps1`.
+
+### G36
+- Symptom: a server attribute write wipes all ~134 system attributes.
+- Cause: a bare `PUT /attributes` REPLACES the whole set.
+- Fix: always scope the server call with `?name=`.
+- Handled-by: `manage_attributes.ps1` (always name-scoped at server scope).
+
+### G37
+- Symptom: PowerShell drops the database-name argument to `create_datasource.ps1`.
+- Cause: `-Db` is a reserved alias of `-Debug`.
+- Fix: use `-Database`.
+- Handled-by: `create_datasource.ps1 -Database`.
+
+### G38
+- Symptom: PowerShell eats Maven/Java `-D...` args.
+- Cause: PS parses `-D...` as its own switches.
+- Fix: put them after the `--%` stop-parsing token.
+- Handled-by: N/A (caller convention).
+
+### G39
+- Symptom: a wrapper script aborts on a clean (exit 0) compile/render.
+- Cause: the SLF4J "No providers" line goes to stderr; under
+  `$ErrorActionPreference="Stop"` that aborts the wrapper.
+- Fix: invoke `java` directly, or check the `.jasper`/`.png` output rather than the
+  pipeline error state.
+- Handled-by: the shared `Invoke-JrCompile` helper absorbs SLF4J-on-stderr.
+
+### G40
+- Symptom: a large report times out on the synchronous `/reports/{uri}.{fmt}` endpoint.
+- Cause: the sync endpoint blocks until the fill finishes.
+- Fix: use the async `reportExecutions` service (submit -> poll `.../status` until
+  `ready` -> download `.../outputResource`; `exportId` from
+  `GET .../reportExecutions/{rid}` -> `exports[0].id`).
+- Handled-by: `run_report_async.ps1`.
+
+### G41
+- Symptom: a `/Type /Page` grep reads 0 on a perfectly good PDF.
+- Cause: the PDF page tree is usually compressed.
+- Fix: verify by HTTP `200` + correct magic bytes (`%PDF-`, or `PK` for Office/OD
+  zip formats) + a non-trivial byte size, not by counting page objects.
+- Handled-by: `verify_report.ps1` / `build_dashlets.ps1` verify this way.
+
+### G42
+- Symptom: an uploaded image (logo) does not resolve via `repo:`.
+- Cause: it was uploaded with Type `png`/`jpg` instead of `img`.
+- Fix: upload images with `Type img`. The `-Type` set is
+  `txt|csv|img|font|jrxml|prop|jar|xml|unspecified` (default `txt`); there is no
+  `png`/`jpg` file type on the server side, `img` covers every raster format.
+- Handled-by: `upload_file.ps1 -Type img` (see the param doc in `scripts/upload_file.ps1`).
+
+### G56
+- Symptom: a PUT of an inputControl (or any descriptor carrying a one-item list)
+  is rejected with `ArrayList from String value` / a JSON-shape error, although
+  the same PowerShell object works when the list has two or more items.
+- Cause: PowerShell 5.1 `ConvertTo-Json` unwraps a single-element array to a
+  scalar (`"visibleColumns":"col"` instead of `["col"]`), and the server
+  deserializer wants an array.
+- Fix: keep the array an array: wrap with `@(...)` at the call site, pass the
+  object via `-InputObject`, or use the comma operator (`,$arr`) when piping.
+  Where the shape matters (`visibleColumns`, list-of-values `items`), build the
+  JSON string by hand and write it to a temp file for `Invoke-JrsPut -JsonFile`.
+- Handled-by: `deploy_report.ps1` (query controls: hand-built `visibleColumns`
+  JSON, see the comment near the `-QueryControl` loop) and the POS-suite control
+  helpers (`New-LovControl` builds `items` by hand for the same reason).
+
+### G57
+- Symptom: an inline inputControl PUT fails `Cannot deserialize value of type
+  'byte' from String "singleValue"` (or a control shows the wrong widget).
+- Cause: the write API takes the LEGACY NUMERIC type codes, not the string enums
+  the read API returns (`singleValue`, `singleSelect`, ...). The nested
+  `dataType.dataType.type` is likewise ordinal (`0`=text, `1`=number, `2`=date,
+  `3`=datetime).
+- Fix: use the numeric `type` codes. The ones the scripts emit and have verified:
+
+  | code | control | used by |
+  | --- | --- | --- |
+  | 1 | boolean (checkbox) | hand-authored only |
+  | 2 | single value (typed; needs a `dataType`) | `deploy_report.ps1 -Control name=single[=text/number/date]` |
+  | 3 | single-select, list of values | `deploy_report.ps1 -Control name=select`, `New-LovControl` |
+  | 4 | single-select, query-backed | `deploy_report.ps1 -QueryControl`, `New-QueryControl` |
+  | 6 | multi-select, list of values | `deploy_report.ps1 -Control name=multiselect` |
+  | 7 | multi-select, query-backed | `deploy_report.ps1 -QueryMultiControl` |
+  | 8 / 9 | multi-select checkbox (LOV / query) | hand-authored only |
+  | 10 / 11 | single-select radio (LOV / query) | hand-authored only |
+
+  Codes 1, 8-11 are the JRS legacy `InputControl` constants and are listed for
+  completeness; only 2/3/4/6/7 are exercised by the scripts.
+- Handled-by: `deploy_report.ps1` (`-Control`, `-QueryControl`,
+  `-QueryMultiControl`); the inputControls section above documents the
+  round-trip.
+
+## Gotchas: export/import, permissions/admin, alerts/options/run, environment
+
+Moved here from `gotchas.md`; ids are stable. These are behaviors of the
+endpoints mapped above (`import / export`, `permissions`, `alerts`, `options`,
+`contexts`, `diagnostic`) plus install-level facts about reaching the server.
+
+### G25
+- Symptom: 405 on `GET /rest_v2/export/{id}`.
+- Cause: the export download endpoint is `/exportFile`, not the bare id.
+- Fix: download from `/rest_v2/export/{id}/exportFile` (after polling
+  `/rest_v2/export/{id}/state` to `phase=finished`).
+- Handled-by: `export_resource.ps1`.
+
+### G26
+- Symptom: an ad hoc view JSON PUT fails `500 "bytes is null"`.
+- Cause: an `adhocDataView` carries a large opaque `query.multiAxis`/`component`
+  state plus a companion binary; a raw JSON PUT cannot reconstruct it (same
+  don't-PUT lesson as dashboards).
+- Fix: use the export/import envelope (carries the view plus its backing Topic/Domain).
+- Handled-by: `manage_adhoc.ps1 -Action export|import` (wraps `export_resource.ps1`/`import_resource.ps1`).
+
+### G43
+- Symptom: setting permissions returns `415`.
+- Cause: `Content-Type: application/collection.permission+json` is rejected.
+- Fix: use `Content-Type: application/collection+json`. Masks: 1=administer,
+  2=read+delete, 18=read+write, 30=read-only, 32=execute-only.
+- Handled-by: `manage_permissions.ps1`.
+
+### G44
+- Symptom: `manage_users.ps1` auth fails (401) or sets the wrong password.
+- Cause: `-Password` is the NEW user's initial password, not the JRS auth password.
+- Fix: pass the JRS auth password as `-JrsPassword`.
+- Handled-by: `manage_users.ps1`.
+
+### G45
+- Symptom: creating an organization with `PUT {id}` does not work as expected.
+- Cause: org create is a POST on the collection
+  (`/rest_v2/organizations?createDefaultUsers=true`, WADL id `putOrganization`).
+- Fix: POST to create; `update` is a read-modify-write `PUT {id}` (so setting
+  `-Theme` does not blank other fields).
+- Handled-by: `manage_organizations.ps1`.
+
+### G46
+- Symptom: alert create fails `400`.
+- Cause: two shape traps -- `mailNotification.toAddresses` must be a wrapper object
+  `{address:[...]}` (NOT a bare array, unlike jobs); and `baseOutputFilename` is
+  required even for an email-only alert.
+- Fix: use the wrapper object and always set `baseOutputFilename`.
+- Handled-by: `manage_alert.ps1`.
+
+### G47
+- Symptom: a saved report option's input-control values are not applied.
+- Cause: a `?reportOptions=<id>` query on the report URL does NOT apply them.
+- Fix: run the option's OWN sibling URI as a report:
+  `GET /reports/<folder>/<id>.pdf`.
+- Handled-by: `manage_options.ps1 -Action run`.
+
+### G48
+- Symptom: a JR Library sample deploys + runs (200 + valid PDF) but renders blank.
+- Cause: many samples rely on parameters the Java harness supplies (e.g.
+  `MaxOrderID`); with no default they fill empty. (A 200 + valid PDF only means it
+  ran, not that it has content.)
+- Fix: pass params at run time (`...PieChartReport.pdf?MaxOrderID=11077`) or bake in
+  defaults.
+- Handled-by: `report\inject_chart_defaults.py` injects `<defaultValueExpression>`.
+
+### G50
+- Symptom: every path `401`s.
+- Cause: targeting port 8080, an unrelated Bearer-token-gated Java service.
+- Fix: target `http://localhost:8081/jasperserver-pro` (REST v2, HTTP Basic,
+  `superuser` with the password from `jrs.config.json` -- not the default).
+- Handled-by: credential resolution defaults to 8081.
+
+### G51
+- Symptom: every call `401`s on the RIGHT server with the RIGHT password --
+  even `GET /rest_v2/serverInfo` -- when the same credentials worked minutes
+  earlier.
+- Cause: JRS account lockout. 10 failed logins disable the account
+  (`jiuser.enabled = false`); a client retrying with a STALE password (the
+  classic culprit: a deployed jasper-wizard WAR whose `web.xml` still holds the
+  old `jrsPass` after a password change, failing once per proxied request)
+  burns through the 10 in seconds. The lockout does NOT auto-expire, and no
+  org admin can re-enable the root `superuser` via REST.
+- Fix: re-enable directly in the repo metadata DB (the bundled Postgres, on the
+  port from `jrs.config.json` -- see G59): `UPDATE jiuser SET enabled=true,
+  numberoffailedloginattempts=0 WHERE username='superuser';` -- then fix the
+  stale-credential client.
+- Handled-by: `webapp/jasper-wizard/build.ps1` patches the assembled
+  `web.xml`'s JRS connection from the skill's gitignored `jrs.config.json` at
+  build time, so a rebuilt wizard always matches the local server creds; the
+  smoke test's `wizard-api` step catches the drift before it can lock the
+  account.
+
+### G52
+- Symptom: `POST /rest_v2/contexts` (datasource connection test) fails `415
+  Unsupported Media Type`.
+- Cause: guessing a `application/connections.jdbc+json` content type. The
+  contexts service wants the descriptor's OWN repository media type.
+- Fix: `Content-Type: application/repository.jdbcDataSource+json` (or
+  `...jndiJdbcDataSource+json` / `...customDataSource+json`). Then 201 = the
+  server-side connection actually opened; 400 `connection.failed` carries the
+  driver's real error.
+- Handled-by: `Invoke-JrsConnectionTest` (`_jrs_common.ps1`) /
+  `create_datasource.ps1 -Test` / doctor's "JRS->DB connection" check.
+
+### G53
+- Symptom: diagnostic collectors vanish after a "delete one" call; or the
+  downloaded collector zip's log will not open; or creating a collector 400s
+  with a `validateName` stack trace.
+- Cause: three sharp edges of `/rest_v2/diagnostic/collectors`: (1) a DELETE on
+  the bare collection (no id) deletes ALL collectors (same family as G36's
+  PUT-/attributes wipe); (2) the zip's `diagnostic.log.jsEncrypted` is
+  encrypted with the server key -- intended for Jaspersoft support, only
+  `collectorSettings.xml` is plaintext; (3) collector names must be unique
+  among live collectors.
+- Fix: always delete by id (`-Id`); treat the zip as a support bundle; use a
+  fresh name per run.
+- Handled-by: `manage_diagnostic.ps1` (requires `-Id` unless `-All`; notes the
+  encryption; documents the name rule).
+
+### G54
+- Symptom: every type-filtered repository search
+  (`resources?type=jdbcDataSource`, `jndiJdbcDataSource`, ...) suddenly `500`s
+  with `ClassCastException: Cannot cast RepoJdbcDataSource to
+  RepoResourceItemBase` -- single GETs and `q=` text search still work, the
+  wizard's datasource list breaks, and clearing caches via
+  `DELETE /caches/{id}` does nothing.
+- Cause: a diagnostic collector started at **verbosity HIGH** (JRS 10.0.0
+  server bug). Bisected live: the search breaks the moment the HIGH collector
+  STARTS and stays broken after stop/delete; a full LOW-verbosity lifecycle
+  (start->stop->download->delete) is clean.
+- Fix: restart Tomcat (only cure), and use `LOW` verbosity for collectors.
+- Handled-by: `manage_diagnostic.ps1` defaults to `LOW` and warns on `HIGH`;
+  the smoke's `diagnostic` step runs the LOW lifecycle.
+
+### G59
+- Symptom: `psql`, `report_usage.ps1` or `doctor.ps1` connect to a `jasperserver`
+  database that is EMPTY or stale (no `jiauditevent` rows, old users), or the
+  G51 lockout `UPDATE` "succeeds" but the account stays locked.
+- Cause: the JRS-bundled PostgreSQL may listen on a NON-default port, and a
+  separate, stale `jasperserver` database can exist on the default 5432 (a
+  decoy left by an earlier install). Pointing at 5432 by habit reads the wrong
+  instance.
+- Fix: read the live port from the JRS `context.xml` (the repository JNDI
+  datasource URL) or `jrs.config.json`'s `repoDb.port`, never assume 5432. Write
+  it into `jrs.config.json` so every script resolves the same instance.
+- Handled-by: `jrs.config.json` (`repoDb`, schema-documented in
+  `jrs.config.schema.json`); `doctor.ps1` counts against that instance and,
+  when `webappDir` is set, parses `<webapp>/META-INF/context.xml` (or
+  `WEB-INF/js.jdbc.properties`) for the repository JDBC URL and cross-checks the
+  REAL port against `repoDb`; `admin-and-scheduling.md` describes the
+  usage-report queries against it.

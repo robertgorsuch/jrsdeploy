@@ -46,10 +46,12 @@ $base = "$($jrs.ServerUrl)/rest_v2/import"
 $q = "?update=$($Update.ToString().ToLower())"
 
 # --- post the archive (multipart) ---------------------------------------------
-$resp = & (Get-JrsCurl) -s -S -u $auth -X POST -H "Accept: application/json" `
-    -F "file=@$zipFull;type=application/zip" "$base$q"
-$id = ($resp | ConvertFrom-Json).id
-if (-not $id) { throw "import request failed: $resp" }
+# Through the shared helper so the write guard applies: an import is a
+# repository write and is refused in plan mode / on an unconfirmed prod target.
+$r = Invoke-JrsRest -Jrs $jrs -Method POST -Path "/rest_v2/import$q" -FormFile $zipFull
+$resp = $r.Body
+$id = try { ($resp | ConvertFrom-Json).id } catch { $null }
+if (-not $id) { throw "import request failed (HTTP $($r.Code)): $resp" }
 Write-Host "import id: $id"
 
 # --- poll state ---------------------------------------------------------------
@@ -61,4 +63,15 @@ do {
     if ($phase -eq "failed") { throw "import failed: $state" }
 } while ($phase -ne "finished" -and (Get-Date) -lt $deadline)
 if ($phase -ne "finished") { throw "import timed out after ${TimeoutSec}s (phase=$phase)" }
+# A "finished" import can still have skipped resources: the state carries
+# warnings[] (broken dependencies, skipped resources) and errorDescriptor.
+# Print them -- a silently skipped dashboard otherwise looks like success.
+try {
+    $st = $state | ConvertFrom-Json
+    if ($st.errorDescriptor) { Write-Warning ("import errorDescriptor: " + ($st.errorDescriptor | ConvertTo-Json -Compress -Depth 5)) }
+    foreach ($w in @($st.warnings)) {
+        $wt = if ($w -is [string]) { $w } else { ($w | ConvertTo-Json -Compress -Depth 5) }
+        if ("$wt".Trim() -and "$wt".Trim() -ne "{}" -and "$wt".Trim() -ne "null") { Write-Warning "import warning: $wt" }
+    }
+} catch { }
 Write-Host "OK: imported $Zip"

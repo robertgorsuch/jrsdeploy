@@ -1,0 +1,96 @@
+{
+  "model_version": "price-elasticity-v1",
+  "run_date": "2026-08-26",
+  "panel_rows": 16056,
+  "plus": 938,
+  "months": 24,
+  "usable_diffs": 14463,
+  "train_diffs": 10814,
+  "holdout_diffs": 3649,
+  "train_end": 202006,
+  "min_diffs": 6,
+  "fitted_plus": 700,
+  "validation": {
+    "corr_pred_actual": 0.2502927614776397,
+    "r2_vs_no_response_null": 0.0022535798254316175,
+    "corr_unshrunk": 0.14630654367066911,
+    "calibration_slope": 0.5045974439686135,
+    "n": 3413
+  },
+  "calibration_applied": 0.5045974439686135,
+  "elasticity_distribution": {
+    "median": -1.9996235359533217,
+    "p10": -4.903333039043436,
+    "p90": -0.18914564880823,
+    "share_elastic_lt_minus1": 0.6844349680170576,
+    "share_positive_sign_error": 0.06716417910447761
+  },
+  "category_elasticity": [
+    {
+      "category": "Uncategorised",
+      "plus": 624,
+      "elasticity": -1.5539545520346236,
+      "annual_sales": 331134420.16
+    },
+    {
+      "category": "Butcher",
+      "plus": 30,
+      "elasticity": -4.5337965895897145,
+      "annual_sales": 164455773.6
+    },
+    {
+      "category": "Appetizers",
+      "plus": 32,
+      "elasticity": -4.380815646394664,
+      "annual_sales": 78686004.47
+    },
+    {
+      "category": "Prepared meals",
+      "plus": 24,
+      "elasticity": -3.1031429929571384,
+      "annual_sales": 64065670.18
+    },
+    {
+      "category": "Single serve",
+      "plus": 31,
+      "elasticity": -2.58514138865107,
+      "annual_sales": 45608534.18
+    },
+    {
+      "category": "Desserts",
+      "plus": 25,
+      "elasticity": -1.3658407540865067,
+      "annual_sales": 40524394.28
+    },
+    {
+      "category": "Seafood",
+      "plus": 8,
+      "elasticity": -2.70574190128248,
+      "annual_sales": 10837431.58
+    },
+    {
+      "category": "Sides",
+      "plus": 5,
+      "elasticity": -1.466667262581271,
+      "annual_sales": 7696411.82
+    },
+    {
+      "category": "Pantry essentials",
+      "plus": 11,
+      "elasticity": -5.138021673595795,
+      "annual_sales": 6022585.75
+    },
+    {
+      "category": "Bakery",
+      "plus": 1,
+      "elasticity": -1.024083608394087,
+      "annual_sales": 2398330.33
+    },
+    {
+      "category": "Kitchen essentials",
+      "plus": 8,
+      "elasticity": -2.6037497397555622,
+      "annual_sales": 1625440.01
+    }
+  ]
+}

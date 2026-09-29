@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Retention and Churn console: 5-up KPI chip strip. Layout pattern mirrors
+     trs_kpi.jrxml / pnl_kpi_strip.jrxml (divider lines, 13pt label / 26pt
+     value, centered, evaluationTime="Report" so the single result row is
+     available in the title band).
+
+     FILTER CONTRACT shared by every tile of this console except chn_cohorts:
+
+       chn_score_date  multi-select collection, the console score date
+       p_regions       multi-select collection to $X{IN, region, p_regions}
+       chn_tier        multi-select collection to $X{IN, loyalty_tier, chn_tier}
+       chn_band        multi-select collection to $X{IN, risk_band, chn_band}
+       p_score_date    DERIVED String, "yyyy-MM-dd", never prompted
+
+     DEVIATION FROM THE TASK BRIEF, deliberate and load bearing. The brief named
+     the tile parameters p_score_date / p_regions / p_tiers / p_bands, but
+     JasperReports Server binds an attached input control to the report
+     parameter whose name EQUALS the control's resource name, and the dashboard
+     composer likewise emits ownerResourceParameterName = the control name for
+     every entry in the manifest "filters" array. The three controls that Task 3
+     actually created and that Attach-ChurnControls attaches are named
+     chn_score_date, chn_tier and chn_band, so parameters called p_tiers and
+     p_bands would simply never receive a value and the filter strip would be
+     inert. The parameter names here therefore track the live control names.
+
+     p_score_date is kept exactly as the brief specifies it, as a String
+     defaulting to "2020-12-31", because both the SQL predicate and the
+     chn_actions drill contract are written against a scalar date. It is derived
+     from the chn_score_date collection rather than prompted, because the live
+     chn_score_date control is type 7 (multiSelectQuery), which hands the report
+     a Collection and could not bind to a String parameter directly. With no
+     selection the default holds; with a selection the first (and, in the
+     current data, only) chosen value wins. p_score_date carries no input
+     control of its own, so it is never shown to the reader.
+
+     Each chip null-guards its value (blankWhenNull plus a null-safe sub-line):
+     a narrow filter combination can legitimately select no scored customers.
+     Expected at defaults: 3,184,743 / 66.9% / $20,807,163 / 32.5% / 0.524. -->
+<jasperReport name="chn_kpi" language="java" pageWidth="1600" pageHeight="130" columnWidth="1580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="chn_score_date" class="java.util.Collection"/>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="chn_tier" class="java.util.Collection"/>
+	<parameter name="chn_band" class="java.util.Collection"/>
+	<parameter name="p_score_date" class="java.lang.String">
+		<defaultValueExpression><![CDATA[($P{chn_score_date} == null || $P{chn_score_date}.isEmpty()) ? "2020-12-31" : String.valueOf($P{chn_score_date}.iterator().next())]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT COUNT(*) AS scored_customers,
+       DECIMAL(100.0 * FLOAT8(COUNT(CASE WHEN risk_band IN ('Critical', 'High') THEN 1 END)) / FLOAT8(NULLIF(COUNT(*), 0)), 6, 2) AS critical_high_pct,
+       DECIMAL(SUM(CASE WHEN risk_band IN ('Critical', 'High') THEN expected_ltv_at_risk ELSE 0 END), 14, 2) AS ltv_at_risk,
+       DECIMAL(100.0 * FLOAT8(COUNT(CASE WHEN overdue_ratio > 1 THEN 1 END)) / FLOAT8(NULLIF(COUNT(*), 0)), 6, 2) AS pct_overdue,
+       DECIMAL(AVG(churn_probability), 6, 4) AS avg_churn_prob
+FROM dash_churn
+WHERE score_date = DATE($P{p_score_date})
+  AND ($X{IN, region, p_regions})
+  AND ($X{IN, loyalty_tier, chn_tier})
+  AND ($X{IN, risk_band, chn_band})
+	]]></query>
+
+	<field name="scored_customers" class="java.lang.Long"/>
+	<field name="critical_high_pct" class="java.math.BigDecimal"/>
+	<field name="ltv_at_risk" class="java.math.BigDecimal"/>
+	<field name="pct_overdue" class="java.math.BigDecimal"/>
+	<field name="avg_churn_prob" class="java.math.BigDecimal"/>
+
+	<title height="110">
+		<element kind="staticText" x="10" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Scored Customers]]></text></element>
+		<element kind="textField" x="10" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{scored_customers}]]></expression></element>
+		<element kind="staticText" x="10" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[customers carrying a churn score]]></text></element>
+
+		<element kind="line" x="316" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="326" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Critical + High Risk]]></text></element>
+		<element kind="textField" x="326" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{critical_high_pct}]]></expression></element>
+		<element kind="staticText" x="326" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[share of the scored population]]></text></element>
+
+		<element kind="line" x="632" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="642" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[LTV at Risk]]></text></element>
+		<element kind="textField" x="642" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{ltv_at_risk}]]></expression></element>
+		<element kind="staticText" x="642" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[expected value held by Critical and High]]></text></element>
+
+		<element kind="line" x="948" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="958" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Overdue vs Expected]]></text></element>
+		<element kind="textField" x="958" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{pct_overdue}]]></expression></element>
+		<element kind="staticText" x="958" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[past their own buying cadence]]></text></element>
+
+		<element kind="line" x="1264" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="1274" y="4" width="300" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Avg Churn Probability]]></text></element>
+		<element kind="textField" x="1274" y="24" width="300" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.000" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{avg_churn_prob}]]></expression></element>
+		<element kind="staticText" x="1274" y="68" width="300" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[mean modelled probability of lapsing]]></text></element>
+
+		<element kind="textField" x="10" y="88" width="1564" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA["Customers scored as of " + $P{p_score_date}]]></expression></element>
+	</title>
+
+</jasperReport>

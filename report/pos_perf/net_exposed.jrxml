@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Store Network cockpit: stores with 3+ competitors within 2 km AND below
+     their own format's average sales per square foot - the two-condition
+     "needs a decision" screen. List tile pattern from sup_scorecard.jrxml: a
+     #1F4E79 header band with white labels, a 22pt detail row, and a #D6E0EF
+     zebra rectangle gated on $V{REPORT_COUNT} % 2 so alternating rows are
+     shaded, plus a thin #D6E0EF separator line under each row.
+
+     The format-average threshold is a scalar correlated subquery per row,
+     not a separate derived table, exactly as the brief specifies - stores is
+     only 330 rows and this is a one-time dashboard render, not a hot path,
+     so the extra join/materialization a derived table would cost is not
+     worth it here.
+
+     No drill target - the spec lists none for this dashboard's tiles (unlike
+     sup_scorecard's fixed-scope hyperlink into the full supplier report,
+     there is no equivalent "full store detail" report in this suite to point
+     at, so this tile is display-only).
+
+     whenNoDataType is not set: a dashboard tile with zero matching rows
+     renders an empty table, which is the CORRECT answer here (it would mean
+     no store meets both exposure criteria) - not an error state to guard
+     against, per the brief.
+
+     Field types match net_map.jrxml's identical sales_per_sqft/competitors_2km
+     pair: storenumber Integer, storename/region/store_format String,
+     sales_per_sqft BigDecimal, competitors_2km Long (bare COUNT(*) scalar,
+     this suite's established convention). Cockpit archetype: no parameters. -->
+<jasperReport name="net_exposed" language="java" pageWidth="800" pageHeight="360" columnWidth="780" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT s.storenumber, s.storename, s.region, s.store_format,
+       DECIMAL(FLOAT8(s.total_sales) / FLOAT8(NULLIF(s.square_feet, 0)), 8, 2) AS sales_per_sqft,
+       (SELECT COUNT(*) FROM competitor_locations c WHERE c.storenumber = s.storenumber AND c.distance_km <= 2) AS competitors_2km
+FROM stores s
+WHERE (SELECT COUNT(*) FROM competitor_locations c WHERE c.storenumber = s.storenumber AND c.distance_km <= 2) >= 3
+  AND FLOAT8(s.total_sales) / FLOAT8(NULLIF(s.square_feet, 0)) <
+      (SELECT AVG(FLOAT8(s2.total_sales) / FLOAT8(NULLIF(s2.square_feet, 0))) FROM stores s2 WHERE s2.store_format = s.store_format)
+ORDER BY competitors_2km DESC, sales_per_sqft ASC
+	]]></query>
+
+	<field name="storenumber" class="java.lang.Integer"/>
+	<field name="storename" class="java.lang.String"/>
+	<field name="region" class="java.lang.String"/>
+	<field name="store_format" class="java.lang.String"/>
+	<field name="sales_per_sqft" class="java.math.BigDecimal"/>
+	<field name="competitors_2km" class="java.lang.Long"/>
+
+	<title height="52">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="780" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Stores Needing a Decision]]></text></element>
+		<element kind="staticText" x="0" y="26" width="780" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[3 or more competitors within 2 km and below-format sales per square foot]]></text></element>
+	</title>
+
+	<columnHeader height="22">
+		<element kind="rectangle" x="0" y="0" width="780" height="22" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="6" y="0" width="50" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Store#]]></text></element>
+		<element kind="staticText" x="60" y="0" width="200" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Store]]></text></element>
+		<element kind="staticText" x="264" y="0" width="110" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Region]]></text></element>
+		<element kind="staticText" x="378" y="0" width="140" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Format]]></text></element>
+		<element kind="staticText" x="522" y="0" width="120" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Sales / Sq Ft]]></text></element>
+		<element kind="staticText" x="646" y="0" width="128" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Competitors (2km)]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="22">
+			<element kind="rectangle" x="0" y="0" width="780" height="22" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" x="6" y="0" width="50" height="22" fontSize="10.0" forecolor="#1F4E79" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true"><expression><![CDATA[$F{storenumber}]]></expression></element>
+			<element kind="textField" x="60" y="0" width="200" height="22" fontSize="10.0" vTextAlign="Middle"><expression><![CDATA[$F{storename}]]></expression></element>
+			<element kind="textField" x="264" y="0" width="110" height="22" fontSize="10.0" vTextAlign="Middle"><expression><![CDATA[$F{region}]]></expression></element>
+			<element kind="textField" x="378" y="0" width="140" height="22" fontSize="10.0" vTextAlign="Middle"><expression><![CDATA[$F{store_format}]]></expression></element>
+			<element kind="textField" x="522" y="0" width="120" height="22" fontSize="10.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0.00" blankWhenNull="true"><expression><![CDATA[$F{sales_per_sqft}]]></expression></element>
+			<element kind="textField" x="646" y="0" width="128" height="22" fontSize="10.0" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true"><expression><![CDATA[$F{competitors_2km}]]></expression></element>
+			<element kind="line" x="0" y="21" width="780" height="1" forecolor="#D6E0EF"/>
+		</band>
+	</detail>
+
+</jasperReport>

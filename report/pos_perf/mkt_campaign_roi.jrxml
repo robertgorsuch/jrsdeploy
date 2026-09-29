@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Marketing and Digital cockpit: top 15 promotions by margin per dollar of
+     subsidy spend, horizontal bars ranked best first. 75 of 115 promotions
+     rows carry marketing_subsidy >= $1,000 (verified 2026-08-25); the WHERE
+     clause excludes both the unsubsidized rows and the sub-$1,000 rows (a
+     ratio against a near-zero subsidy is not a meaningful ROI figure) and the
+     FETCH FIRST 15 caps the display. The cap is disclosed in the subtitle,
+     not silent, matching rpt_inventory_reorder's own disclosure discipline in
+     reverse: that report discloses it is deliberately uncapped, this tile
+     discloses it is deliberately capped, and by how much (top 15 of 75
+     eligible).
+
+     THE $1,000 FLOOR IS A DELIBERATE RULING, NOT AN ARBITRARY ROUND NUMBER.
+     The live marketing_subsidy distribution has a clean gap: 12 promotions
+     sit under $100 (the near-zero-division noise below, e.g. "Winter Family
+     Favourites #0L24" and "Winter Member Days #0L10" at $0.01 each), while
+     75 promotions sit at $1,000 or more, ranging $1,055.87 to $136,759.90
+     (avg $15,433.35, verified 2026-08-25). $1,000 sits in that gap: it
+     excludes exactly the noise rows this tile originally surfaced (see the
+     DECIMAL correction note below) and leaves a meaningful, genuinely
+     subsidized population to rank.
+
+     Bar length is roi. The bar LABEL shows subsidy_per_conversion instead of
+     roi, per the spec's "subsidy cost per conversion as label" - a category
+     series carries its own labelExpression independent of valueExpression
+     (JRCategorySeries.getLabelExpression, confirmed against the JR 7.0.6
+     jasperreports-charts jar bytecode: JRBaseCategorySeries/JRDesignCategorySeries
+     both expose labelExpression as a distinct property from valueExpression),
+     so showLabels="true" plus a labelExpression on the series shows the
+     subsidy-per-conversion figure on each bar while the bar itself still
+     ranks and sizes by roi.
+
+     DRILL IS A DOCUMENTED FIXED-SCOPE DEVIATION, NOT A BUG. The spec calls for
+     a drill to the Campaign section of the Weekly Flash report, but
+     rpt_weekly_flash declares exactly one parameter, p_week_ending
+     (java.lang.String, default "2020-11-08", confirmed against the live
+     rpt_weekly_flash.jrxml on 2026-08-25) - it has no per-campaign parameter,
+     and its page-2 campaign table lists every campaign active in one week, not
+     a single campaign. There is no way to scope the target to the clicked
+     campaign without changing rpt_weekly_flash's contract, which is out of
+     scope here. Each bar's itemHyperlink (JRCategorySeries.getItemHyperlink,
+     the flattened <hyperlinkParameter> form, same convention sup_scorecard.jrxml
+     uses for its supplier drill) therefore passes the FIXED literal String
+     "2020-11-08" for p_week_ending - the target's own default - rather than
+     any value derived from the clicked campaign. A future reader should NOT
+     "fix" this into a per-campaign filter; rpt_weekly_flash cannot honour one.
+
+     Value is zero guarded (a null on the first row fails to register the
+     series and shifts the seriesColor order binding). JR7-native bar plot
+     (showTickMarks/showTickLabels/showLabels per jr7-valid-elements.md 3c).
+     Chart is in the title band, so evaluationTime="Report". Cockpit
+     archetype: no parameters.
+
+     CORRECTION to the brief's literal SQL, verified against the live
+     warehouse 2026-08-25: the brief's roi cast is DECIMAL(..., 8, 2), max
+     magnitude 999999.99, but promotions carries rows with marketing_subsidy
+     as low as $0.01 against six/seven-figure promo_margin (e.g. "Winter
+     Member Days #0L10": subsidy $0.01, margin $1,929,833.32, raw ratio
+     192,983,332) - DECIMAL(8,2) overflows on exactly the highest-ROI rows
+     this tile ranks first, which is what a first server-side execution
+     failure surfaced (a generic "Error executing SQL statement" with no
+     further detail from the JRS REST error descriptor; the live warehouse
+     query in isolation returned the actual Ingres numeric-overflow cause).
+     Widened here to DECIMAL(..., 16, 2), comfortably covering the observed
+     range with headroom, exactly as this suite's local-compile discipline
+     already sets precedent for chart-type strings: verify the brief against
+     the live engine rather than trust it, and document the fix. Kept at 16,2
+     even after the $1,000 subsidy floor below removed the rows that actually
+     triggered the overflow (their subsidy is under $100, well below the
+     floor) - the floor is a business-logic decision about which campaigns
+     belong on this tile, not a substitute for a cast wide enough to survive
+     whatever ROI value a genuinely well-funded campaign might produce. -->
+<jasperReport name="mkt_campaign_roi" language="java" pageWidth="800" pageHeight="440" columnWidth="780" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT campaign_name,
+       DECIMAL(FLOAT8(promo_margin) / FLOAT8(NULLIF(marketing_subsidy, 0)), 16, 2) AS roi,
+       DECIMAL(marketing_subsidy, 12, 2) AS subsidy,
+       DECIMAL(FLOAT8(marketing_subsidy) / FLOAT8(NULLIF(total_transactions, 0)), 10, 2) AS subsidy_per_conversion
+FROM promotions
+WHERE marketing_subsidy >= 1000
+ORDER BY roi DESC
+FETCH FIRST 15 ROWS ONLY
+	]]></query>
+
+	<field name="campaign_name" class="java.lang.String"/>
+	<field name="roi" class="java.math.BigDecimal"/>
+	<field name="subsidy" class="java.math.BigDecimal"/>
+	<field name="subsidy_per_conversion" class="java.math.BigDecimal"/>
+
+	<title height="420">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="780" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Top Campaign ROI]]></text></element>
+		<element kind="staticText" x="0" y="26" width="780" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Top 15 of 75 promotions with subsidy $1,000 or more, ranked by margin per dollar of subsidy]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="780" height="372" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["ROI"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{campaign_name}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{roi} == null ? java.math.BigDecimal.ZERO : $F{roi}]]></valueExpression>
+					<labelExpression><![CDATA[$F{subsidy_per_conversion} == null ? "" : ("$" + $F{subsidy_per_conversion} + "/conv")]]></labelExpression>
+					<itemHyperlink linkType="ReportExecution" linkTarget="Blank">
+						<hyperlinkParameter name="_report"><expression><![CDATA["/reports/pos_perf/rpt_weekly_flash"]]></expression></hyperlinkParameter>
+						<hyperlinkParameter name="p_week_ending"><expression><![CDATA["2020-11-08"]]></expression></hyperlinkParameter>
+					</itemHyperlink>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true" showLabels="true">
+				<seriesColor order="0" color="#0A4CAD"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

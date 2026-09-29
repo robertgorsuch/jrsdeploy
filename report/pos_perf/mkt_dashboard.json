@@ -1,0 +1,14 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_marketing_digital",
+  "label": "POS Marketing and Digital",
+  "showExportButton": true,
+  "showPrintButton": true,
+  "dashlets": [
+    { "resource": "/reports/pos_perf/mkt_kpi",           "label": "Key Metrics",              "showTitleBar": false, "x": 0,  "y": 0,  "width": 40, "height": 4 },
+    { "resource": "/reports/pos_perf/mkt_funnel",        "label": "Email Funnel",             "showTitleBar": false, "x": 0,  "y": 4,  "width": 14, "height": 11 },
+    { "resource": "/reports/pos_perf/mkt_ecom_share",    "label": "E-Commerce Share",         "showTitleBar": false, "x": 14, "y": 4,  "width": 26, "height": 11 },
+    { "resource": "/reports/pos_perf/mkt_campaign_roi",  "label": "Top Campaign ROI",         "showTitleBar": false, "x": 0,  "y": 15, "width": 20, "height": 11 },
+    { "resource": "/reports/pos_perf/mkt_partners",      "label": "Delivery Partners",        "showTitleBar": false, "x": 20, "y": 15, "width": 20, "height": 11 }
+  ]
+}

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Marketing and Digital cockpit: delivery partner late rate and satisfaction,
+     best (lowest late rate) first. Delivery-channel partners only - excludes
+     the 'Pickup' bucket dash_ecom_monthly (Task 2) coalesced in, since a
+     pickup order has no delivery partner to score.
+
+     List tile pattern from sup_scorecard.jrxml / chn_actions.jrxml: a
+     #1F4E79 header band with white labels, a 22pt detail row, and a #D6E0EF
+     zebra rectangle gated on $V{REPORT_COUNT} % 2 so alternating rows are
+     shaded.
+
+     AVG SATISFACTION IS ORDER-WEIGHTED, NOT A PLAIN AVERAGE OF MONTHLY
+     AVERAGES. dash_ecom_monthly's avg_satisfaction is already a per-month
+     mean; summing avg_satisfaction * orders and dividing by total orders
+     weights each month's contribution by its own order volume rather than
+     letting a low-volume month count the same as a high-volume one.
+
+     Expected at defaults: exactly 3 rows (SnowRoute Express, Maple Courier
+     Co, UrbanSled Delivery), figures close to the network-wide 6.84 pct late
+     / 3.87 avg satisfaction verified in Task 2, since delivery volume splits
+     close to evenly across the three partners. Cockpit archetype: no
+     parameters. -->
+<jasperReport name="mkt_partners" language="java" pageWidth="800" pageHeight="440" columnWidth="780" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT delivery_partner,
+       DECIMAL(SUM(orders), 10, 0) AS orders,
+       DECIMAL(100.0 * FLOAT8(SUM(late_orders)) / FLOAT8(NULLIF(SUM(orders), 0)), 6, 2) AS late_pct,
+       DECIMAL(SUM(avg_satisfaction * orders) / SUM(orders), 6, 2) AS avg_satisfaction
+FROM dash_ecom_monthly
+WHERE delivery_partner <> 'Pickup'
+GROUP BY delivery_partner
+ORDER BY late_pct ASC
+	]]></query>
+
+	<field name="delivery_partner" class="java.lang.String"/>
+	<field name="orders" class="java.math.BigDecimal"/>
+	<field name="late_pct" class="java.math.BigDecimal"/>
+	<field name="avg_satisfaction" class="java.math.BigDecimal"/>
+
+	<title height="52">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="780" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Delivery Partner Performance]]></text></element>
+		<element kind="staticText" x="0" y="26" width="780" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Delivery-channel partners only, best late rate first]]></text></element>
+	</title>
+
+	<columnHeader height="22">
+		<element kind="rectangle" x="0" y="0" width="780" height="22" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="6" y="0" width="280" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Delivery Partner]]></text></element>
+		<element kind="staticText" x="296" y="0" width="150" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Orders]]></text></element>
+		<element kind="staticText" x="456" y="0" width="150" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Late Rate]]></text></element>
+		<element kind="staticText" x="616" y="0" width="158" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Avg Satisfaction]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="22">
+			<element kind="rectangle" x="0" y="0" width="780" height="22" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" x="6" y="0" width="280" height="22" fontSize="10.0" bold="true" forecolor="#1F4E79" vTextAlign="Middle" blankWhenNull="true"><expression><![CDATA[$F{delivery_partner}]]></expression></element>
+			<element kind="textField" x="296" y="0" width="150" height="22" fontSize="10.0" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true"><expression><![CDATA[$F{orders}]]></expression></element>
+			<element kind="textField" x="456" y="0" width="150" height="22" fontSize="10.0" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true"><expression><![CDATA[$F{late_pct}]]></expression></element>
+			<element kind="textField" x="616" y="0" width="158" height="22" fontSize="10.0" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0.00" blankWhenNull="true"><expression><![CDATA[$F{avg_satisfaction}]]></expression></element>
+			<element kind="line" x="0" y="21" width="780" height="1" forecolor="#D6E0EF"/>
+		</band>
+	</detail>
+
+</jasperReport>

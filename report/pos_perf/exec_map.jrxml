@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Executive Overview: Net Sales by Province choropleth. PRO FusionMaps (legacy
+  6.x jrxml, fm:map namespace) rendered server-side, same pattern as
+  foodmart/foodmart_sales_units_map.jrxml. Uses the installed "Canada" map
+  (…/jasperserver-pro/fusion/maps/fusioncharts.canada.js; confirmed present on
+  STAGE via a direct HTTP 200 GET). NOT locally compilable (Pro component,
+  gotcha G17) - validate by deploy + run-to-PDF.
+
+  Entity ids: the FusionMaps "Canada" map's real entities are ZERO-PADDED
+  NUMERIC keys (e.g. "08" = Ontario), not the two-letter province codes the
+  original ruling assumed. Extracted straight from the live
+  fusioncharts.canada.js (grep for entities{...label:"…",shortLabel:"…"}) and
+  verified against the file's own shortLabel field:
+    01=AB(Alberta) 02=BC(British Columbia) 03=MB(Manitoba) 04=NB(New Brunswick)
+    05=NL(Newfoundland & Labrador) 07=NS(Nova Scotia) 08=ON(Ontario)
+    09=PE(Prince Edward Island) 10=QC(Quebec) 11=SK(Saskatchewan)
+    12=YT(Yukon Territory) 13=NT(Northwest Territories) 14=NU(Nunavut)
+  (there is no id "06" in the map). idExpression below maps the dash_province
+  province-code field (assumed ON/QC/BC/... two-letter codes, consistent with
+  the storeregion codes already confirmed in the Task 2 region rollup) to these
+  numeric ids; unmatched codes fall through to "00" (renders uncolored, does
+  not break the map).
+
+  NAVY THEME: this file is deliberately JR6 legacy syntax (the fm:map PRO
+  component has no JR7 terse form), so the background band uses the JR6
+  <background><band><rectangle> shape rather than the JR7 <background
+  height=".."><element kind="rectangle"/> shape used by the sibling tiles - the
+  two syntaxes are NOT mixed within a file. Margins are zeroed and folded into
+  the element coordinates so the #000032 rectangle bleeds to the page edge (JR
+  rejects a background element that reaches outside its band, and also a
+  background band taller than pageHeight minus the margins). The sequential ramp
+  is re-pointed at the navy scale #1B2C52 / #2E5BA8 / #3C91FF / #8AC6F8 (the
+  legend swatches follow), entity labels stay white via baseFontColor, and the
+  FusionCharts plate itself is painted #000032 via bgColor / bgAlpha /
+  canvasBgColor so no white block shows behind the provinces. nullEntityColor
+  keeps the no-data territories on the ramp's darkest step instead of the
+  FusionCharts default light grey.
+-->
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd"
+              name="exec_map" pageWidth="842" pageHeight="596" columnWidth="842"
+              leftMargin="0" rightMargin="0" topMargin="0" bottomMargin="0"
+              uuid="e1ec0a17-0005-0002-0003-000000000001">
+	<queryString><![CDATA[SELECT storeprovince, sales_ext, qty FROM dash_province ORDER BY sales_ext DESC]]></queryString>
+	<field name="storeprovince" class="java.lang.String"/>
+	<field name="sales_ext" class="java.math.BigDecimal"/>
+	<field name="qty" class="java.lang.Long"/>
+	<background>
+		<band height="596">
+			<rectangle>
+				<reportElement x="0" y="0" width="842" height="596" mode="Opaque" backcolor="#000032" forecolor="#000032" uuid="e1ec0a17-0005-0002-0003-000000000030"/>
+				<graphicElement><pen lineWidth="0.0"/></graphicElement>
+			</rectangle>
+		</band>
+	</background>
+	<title>
+		<band height="586">
+			<image>
+				<reportElement x="10" y="10" width="44" height="44" uuid="e1ec0a17-0005-0002-0003-000000000010"/>
+				<imageExpression><![CDATA["repo:/images/actian_logo"]]></imageExpression>
+			</image>
+			<staticText>
+				<reportElement x="10" y="10" width="822" height="24" forecolor="#FFFFFF" uuid="e1ec0a17-0005-0002-0003-000000000002"/>
+				<textElement textAlignment="Center"><font size="16" isBold="true"/></textElement>
+				<text><![CDATA[Retail POS Sales Performance -- Net Sales by Province]]></text>
+			</staticText>
+			<staticText>
+				<reportElement x="10" y="34" width="822" height="13" forecolor="#8AC6F8" uuid="e1ec0a17-0005-0002-0003-000000000003"/>
+				<textElement textAlignment="Center"><font size="9"/></textElement>
+				<text><![CDATA[Geographic heatmap -- color = net sales; label shows net sales and units sold]]></text>
+			</staticText>
+			<componentElement>
+				<reportElement x="160" y="60" width="672" height="526" uuid="e1ec0a17-0005-0002-0003-000000000004"/>
+				<fm:map xmlns:fm="http://jaspersoft.com/fusion"
+				        xsi:schemaLocation="http://jaspersoft.com/fusion http://jaspersoft.com/schema/fusion.xsd"
+				        evaluationTime="Report">
+					<fm:mapNameExpression><![CDATA["Canada"]]></fm:mapNameExpression>
+					<fm:mapProperty name="showBorder">
+						<fm:propertyExpression><![CDATA["0"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="showCanvasBorder">
+						<fm:propertyExpression><![CDATA["0"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="canvasBorderThickness">
+						<fm:propertyExpression><![CDATA["0"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="showLabels">
+						<fm:propertyExpression><![CDATA[Boolean.TRUE]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="includeNameInLabels">
+						<fm:propertyExpression><![CDATA[Boolean.TRUE]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="numberPrefix">
+						<fm:propertyExpression><![CDATA["$"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="showLegend">
+						<fm:propertyExpression><![CDATA["0"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="baseFontColor">
+						<fm:propertyExpression><![CDATA["#FFFFFF"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="legendItemFontColor">
+						<fm:propertyExpression><![CDATA["#FFFFFF"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="bgColor">
+						<fm:propertyExpression><![CDATA["000032"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="bgAlpha">
+						<fm:propertyExpression><![CDATA["100"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="canvasBgColor">
+						<fm:propertyExpression><![CDATA["000032"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:mapProperty name="nullEntityColor">
+						<fm:propertyExpression><![CDATA["1B2C52"]]></fm:propertyExpression>
+					</fm:mapProperty>
+					<fm:colorRange color="#1B2C52">
+						<fm:minValueExpression><![CDATA[0]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[10000000]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["< $10M"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:colorRange color="#2E5BA8">
+						<fm:minValueExpression><![CDATA[10000000]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[50000000]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["$10M - $50M"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:colorRange color="#3C91FF">
+						<fm:minValueExpression><![CDATA[50000000]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[150000000]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["$50M - $150M"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:colorRange color="#8AC6F8">
+						<fm:minValueExpression><![CDATA[150000000]]></fm:minValueExpression>
+						<fm:maxValueExpression><![CDATA[500000000]]></fm:maxValueExpression>
+						<fm:labelExpression><![CDATA["$150M+"]]></fm:labelExpression>
+					</fm:colorRange>
+					<fm:mapDataset>
+						<fm:entity>
+							<fm:idExpression><![CDATA[
+$F{storeprovince} == null ? "00" :
+$F{storeprovince}.trim().toUpperCase().equals("AB") ? "01" :
+$F{storeprovince}.trim().toUpperCase().equals("BC") ? "02" :
+$F{storeprovince}.trim().toUpperCase().equals("MB") ? "03" :
+$F{storeprovince}.trim().toUpperCase().equals("NB") ? "04" :
+$F{storeprovince}.trim().toUpperCase().equals("NL") ? "05" :
+$F{storeprovince}.trim().toUpperCase().equals("NS") ? "07" :
+$F{storeprovince}.trim().toUpperCase().equals("ON") ? "08" :
+$F{storeprovince}.trim().toUpperCase().equals("PE") ? "09" :
+$F{storeprovince}.trim().toUpperCase().equals("QC") ? "10" :
+$F{storeprovince}.trim().toUpperCase().equals("SK") ? "11" :
+$F{storeprovince}.trim().toUpperCase().equals("YT") ? "12" :
+$F{storeprovince}.trim().toUpperCase().equals("NT") ? "13" :
+$F{storeprovince}.trim().toUpperCase().equals("NU") ? "14" : "00"
+							]]></fm:idExpression>
+							<fm:valueExpression><![CDATA[$F{sales_ext}]]></fm:valueExpression>
+							<fm:labelExpression><![CDATA[$F{storeprovince} + " - " + new java.text.DecimalFormat("#,##0").format($F{qty}) + " units"]]></fm:labelExpression>
+						</fm:entity>
+					</fm:mapDataset>
+					<fm:shapeData/>
+					<c:markerData xmlns:c="http://jasperreports.sourceforge.net/jasperreports/components"
+					              xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports/components http://jasperreports.sourceforge.net/xsd/components.xsd"/>
+				</fm:map>
+			</componentElement>
+			<staticText>
+				<reportElement x="16" y="258" width="138" height="14" forecolor="#FFFFFF" uuid="e1ec0a17-0005-0002-0003-000000000020"/>
+				<textElement><font size="10" isBold="true"/></textElement>
+				<text><![CDATA[Net Sales]]></text>
+			</staticText>
+			<rectangle>
+				<reportElement x="20" y="278" width="20" height="14" mode="Opaque" backcolor="#1B2C52" forecolor="#1B2C52" uuid="e1ec0a17-0005-0002-0003-000000000021"/>
+				<graphicElement><pen lineWidth="0.0"/></graphicElement>
+			</rectangle>
+			<staticText>
+				<reportElement x="46" y="278" width="108" height="14" forecolor="#FFFFFF" uuid="e1ec0a17-0005-0002-0003-000000000022"/>
+				<textElement verticalAlignment="Middle"><font size="9"/></textElement>
+				<text><![CDATA[< $10M]]></text>
+			</staticText>
+			<rectangle>
+				<reportElement x="20" y="300" width="20" height="14" mode="Opaque" backcolor="#2E5BA8" forecolor="#2E5BA8" uuid="e1ec0a17-0005-0002-0003-000000000023"/>
+				<graphicElement><pen lineWidth="0.0"/></graphicElement>
+			</rectangle>
+			<staticText>
+				<reportElement x="46" y="300" width="108" height="14" forecolor="#FFFFFF" uuid="e1ec0a17-0005-0002-0003-000000000024"/>
+				<textElement verticalAlignment="Middle"><font size="9"/></textElement>
+				<text><![CDATA[$10M - $50M]]></text>
+			</staticText>
+			<rectangle>
+				<reportElement x="20" y="322" width="20" height="14" mode="Opaque" backcolor="#3C91FF" forecolor="#3C91FF" uuid="e1ec0a17-0005-0002-0003-000000000025"/>
+				<graphicElement><pen lineWidth="0.0"/></graphicElement>
+			</rectangle>
+			<staticText>
+				<reportElement x="46" y="322" width="108" height="14" forecolor="#FFFFFF" uuid="e1ec0a17-0005-0002-0003-000000000026"/>
+				<textElement verticalAlignment="Middle"><font size="9"/></textElement>
+				<text><![CDATA[$50M - $150M]]></text>
+			</staticText>
+			<rectangle>
+				<reportElement x="20" y="344" width="20" height="14" mode="Opaque" backcolor="#8AC6F8" forecolor="#8AC6F8" uuid="e1ec0a17-0005-0002-0003-000000000027"/>
+				<graphicElement><pen lineWidth="0.0"/></graphicElement>
+			</rectangle>
+			<staticText>
+				<reportElement x="46" y="344" width="108" height="14" forecolor="#FFFFFF" uuid="e1ec0a17-0005-0002-0003-000000000028"/>
+				<textElement verticalAlignment="Middle"><font size="9"/></textElement>
+				<text><![CDATA[$150M+]]></text>
+			</staticText>
+		</band>
+	</title>
+</jasperReport>

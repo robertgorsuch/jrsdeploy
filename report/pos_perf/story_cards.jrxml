@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Option C (Promo & Margin Story): three side-by-side panels.
+
+     (a) Promotion penetration: 100% stacked bar reusing exec_promo_mix's
+     4-color brand palette (dash_promo), plus explicit TPR/No-Promotion
+     percent textFields (chart segment labels render inside the rasterized
+     chart image and are not PDF-text-extractable, so the verifiable copy is
+     duplicated as ordinary textFields).
+
+     (b) Margin card, CONFIRMED, not the deprecated two-basis conflict. Task
+     2 settled the margin basis: gross margin = (sales_ext - cost_line) /
+     sales_ext, i.e. cost_line (=SUM(cost)), never cost_ext. This card shows
+     the single validated 31.65% figure in brand styling (Software Teal
+     "CONFIRMED" badge), not amber/warning, and does not reference the
+     rejected cost_ext-basis -12.6% figure anywhere.
+
+     (c) Basket economics from dash_kpi: avg basket = sales_ext/tx, units/tx =
+     qty/tx, avg unit price = sales_ext/qty.
+
+     All three panels' numbers come from one query (promo rows carry repeated
+     scalar subquery columns for the margin/basket figures, matching
+     story_trend.jrxml's pattern), evaluationTime="Report" for the
+     single-value cards. JR7-native; stackedBar showLabels is valid (gradient
+     customizer does not apply to stackedBar per gotcha G7, so explicit
+     seriesColor is used, same as exec_promo_mix.jrxml).
+
+     NAVY THEME: full-bleed #000032 background band with the margins folded into
+     the element coordinates (see exec_kpi_strip.jrxml). Headings and figures
+     white, captions #8AC6F8, panel dividers #26305A, series Tech Blue #3C91FF
+     then Software Teal #2EC0CB (the teal series carries showLabels="true"), and
+     the chart / plot / axis / legend / item-label colours set explicitly because
+     JFreeChart's defaults are black-on-white (see exec_region_bar.jrxml). The
+     big margin figure was #000032 on white and is inverted to #FFFFFF; the
+     Software Teal CONFIRMED badge is unchanged. -->
+<jasperReport name="story_cards" language="java" pageWidth="1600" pageHeight="300" columnWidth="1600" leftMargin="0" rightMargin="0" topMargin="0" bottomMargin="0">
+	<query language="SQL"><![CDATA[
+SELECT p.promotiontype AS promotiontype,
+       ROUND(SUM(p.sales_ext) * 100.0 / (SELECT SUM(sales_ext) FROM dash_promo), 1) AS pct,
+       (SELECT ROUND(SUM(sales_ext) * 100.0 / (SELECT SUM(sales_ext) FROM dash_promo), 1) FROM dash_promo WHERE promotiontype = 'T') AS t_pct,
+       (SELECT ROUND(SUM(sales_ext) * 100.0 / (SELECT SUM(sales_ext) FROM dash_promo), 1) FROM dash_promo WHERE TRIM(COALESCE(promotiontype, '')) = '') AS none_pct,
+       (SELECT ROUND((SUM(sales_ext) - SUM(cost_line)) / NULLIF(SUM(sales_ext), 0) * 100, 2) FROM dash_monthly) AS margin_pct,
+       (SELECT SUM(sales_ext) - SUM(cost_line) FROM dash_monthly) AS margin_amt,
+       (SELECT SUM(sales_ext) FROM dash_monthly) AS net_sales,
+       (SELECT sales_ext FROM dash_kpi) AS k_sales,
+       (SELECT tx FROM dash_kpi) AS k_tx,
+       (SELECT qty FROM dash_kpi) AS k_qty
+FROM dash_promo p
+GROUP BY p.promotiontype
+ORDER BY 2 DESC
+	]]></query>
+
+	<field name="promotiontype" class="java.lang.String"/>
+	<field name="pct" class="java.math.BigDecimal"/>
+	<field name="t_pct" class="java.math.BigDecimal"/>
+	<field name="none_pct" class="java.math.BigDecimal"/>
+	<field name="margin_pct" class="java.math.BigDecimal"/>
+	<field name="margin_amt" class="java.math.BigDecimal"/>
+	<field name="net_sales" class="java.math.BigDecimal"/>
+	<field name="k_sales" class="java.math.BigDecimal"/>
+	<field name="k_tx" class="java.lang.Long"/>
+	<field name="k_qty" class="java.lang.Long"/>
+
+	<background height="300">
+		<element kind="rectangle" x="0" y="0" width="1600" height="300" mode="Opaque" backcolor="#000032" forecolor="#000032"/>
+	</background>
+
+	<title height="60">
+		<element kind="image" x="20" y="20" width="32" height="32" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="20" y="20" width="1560" height="22" fontSize="15.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center"><text><![CDATA[Promo & Margin Story -- Highlights]]></text></element>
+		<element kind="staticText" x="20" y="42" width="1560" height="14" fontSize="9.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Confirmed metrics -- Jan 2019 - Dec 2020]]></text></element>
+	</title>
+
+	<summary height="210">
+		<!-- Panel A: Promotion Penetration (x 20..515) -->
+		<element kind="staticText" x="20" y="0" width="495" height="18" fontSize="12.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center"><text><![CDATA[Promotion Penetration]]></text></element>
+		<element kind="chart" chartType="stackedBar" x="30" y="20" width="475" height="128" mode="Opaque" backcolor="#000032" legendColor="#FFFFFF" legendBackgroundColor="#000032" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA[$F{promotiontype} == null || $F{promotiontype}.trim().isEmpty() ? "No Promotion" : ($F{promotiontype}.trim().equals("T") ? "TPR" : $F{promotiontype})]]></seriesExpression>
+					<categoryExpression><![CDATA["Promotion Mix"]]></categoryExpression>
+					<valueExpression><![CDATA[$F{pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" showLabels="true" backcolor="#000032"
+			      categoryAxisLabelColor="#8AC6F8" categoryAxisTickLabelColor="#8AC6F8" categoryAxisLineColor="#26305A"
+			      valueAxisLabelColor="#8AC6F8" valueAxisTickLabelColor="#8AC6F8" valueAxisLineColor="#26305A">
+				<itemLabel color="#FFFFFF" backgroundColor="#000032"/>
+				<seriesColor order="0" color="#3C91FF"/>
+				<seriesColor order="1" color="#2EC0CB"/>
+				<seriesColor order="2" color="#71B7F4"/>
+				<seriesColor order="3" color="#239CA8"/>
+			</plot>
+		</element>
+		<element kind="textField" x="30" y="150" width="475" height="18" fontSize="11.0" bold="true" forecolor="#3C91FF" hTextAlign="Center" evaluationTime="Report">
+			<expression><![CDATA["TPR (T): " + new java.text.DecimalFormat("#,##0.0").format($F{t_pct}.doubleValue()) + "%"]]></expression>
+		</element>
+		<element kind="textField" x="30" y="169" width="475" height="16" fontSize="10.0" forecolor="#8AC6F8" hTextAlign="Center" evaluationTime="Report">
+			<expression><![CDATA["No Promotion: " + new java.text.DecimalFormat("#,##0.0").format($F{none_pct}.doubleValue()) + "%"]]></expression>
+		</element>
+
+		<element kind="line" x="525" y="4" width="1" height="196" forecolor="#26305A"/>
+
+		<!-- Panel B: Gross Margin, CONFIRMED (x 540..1035) -->
+		<element kind="staticText" x="540" y="0" width="495" height="18" fontSize="12.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center"><text><![CDATA[Gross Margin]]></text></element>
+		<element kind="rectangle" x="730" y="20" width="115" height="16" mode="Opaque" backcolor="#2EC0CB" forecolor="#2EC0CB"/>
+		<element kind="staticText" x="730" y="20" width="115" height="16" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[CONFIRMED]]></text></element>
+		<element kind="textField" x="540" y="42" width="495" height="52" fontSize="36.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA[new java.text.DecimalFormat("#,##0.00").format($F{margin_pct}.doubleValue()) + "%"]]></expression>
+		</element>
+		<element kind="textField" x="540" y="98" width="495" height="18" fontSize="11.0" forecolor="#8AC6F8" hTextAlign="Center" evaluationTime="Report">
+			<expression><![CDATA["$" + new java.text.DecimalFormat("#,##0.0").format($F{margin_amt}.doubleValue() / 1000000.0) + "M gross margin on $" + new java.text.DecimalFormat("#,##0.0").format($F{net_sales}.doubleValue() / 1000000.0) + "M net sales"]]></expression>
+		</element>
+		<element kind="staticText" x="540" y="122" width="495" height="16" fontSize="8.5" italic="true" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[(net sales - cost) / net sales -- confirmed basis]]></text></element>
+
+		<element kind="line" x="1050" y="4" width="1" height="196" forecolor="#26305A"/>
+
+		<!-- Panel C: Basket Economics (x 1065..1560) -->
+		<element kind="staticText" x="1065" y="0" width="495" height="18" fontSize="12.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center"><text><![CDATA[Basket Economics]]></text></element>
+
+		<element kind="staticText" x="1065" y="26" width="495" height="14" fontSize="10.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Avg Basket]]></text></element>
+		<element kind="textField" x="1065" y="40" width="495" height="26" fontSize="19.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA["$" + new java.text.DecimalFormat("#,##0.00").format($F{k_sales}.doubleValue() / $F{k_tx}.doubleValue())]]></expression>
+		</element>
+
+		<element kind="staticText" x="1065" y="72" width="495" height="14" fontSize="10.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Units / Tx]]></text></element>
+		<element kind="textField" x="1065" y="86" width="495" height="26" fontSize="19.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA[new java.text.DecimalFormat("#,##0.00").format($F{k_qty}.doubleValue() / $F{k_tx}.doubleValue())]]></expression>
+		</element>
+
+		<element kind="staticText" x="1065" y="118" width="495" height="14" fontSize="10.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Avg Unit Price]]></text></element>
+		<element kind="textField" x="1065" y="132" width="495" height="26" fontSize="19.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA["$" + new java.text.DecimalFormat("#,##0.00").format($F{k_sales}.doubleValue() / $F{k_qty}.doubleValue())]]></expression>
+		</element>
+	</summary>
+
+</jasperReport>

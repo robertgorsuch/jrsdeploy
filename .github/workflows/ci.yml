@@ -48,6 +48,14 @@ jobs:
           } else {
             Write-Host "no tests directory - skipping"
           }
+      - name: Python unit tests (scaffold_jrxml dialect checks)
+        shell: pwsh
+        run: |
+          # Plain unittest (no pytest dependency); offline, no psql needed.
+          $skill = "./plugins/jasper-deploy/skills/jasper-deploy"
+          Push-Location $skill
+          try { python -m unittest -v tests/test_scaffold_jrxml.py } finally { Pop-Location }
+          if ($LASTEXITCODE) { throw "python unit tests failed" }
       - name: Plugin manifest sanity
         shell: pwsh
         run: |

@@ -170,3 +170,13 @@ only; to end on Split, upgrade Compact->Compact then migrate Compact->Split
 - Server upgrades of STAGE itself: back up .jrsks/.jrsksp before touching anything,
   use samedb within the 10.x line, and rerun the skill's connection tests plus a
   sample fill after (Jakarta/Tomcat jumps can silently alter resource behavior).
+- `doctor.ps1` prints the serverInfo version for EVERY `environments` profile
+  (STAGE and PROD side by side) and flags the chart-customizer jar as STALE when
+  the server's WEB-INF/lib copy differs from the bundled one -- run it after any
+  server upgrade before promoting: a 10.x jump (Jakarta) is exactly when a custom
+  jar silently stops matching.
+- Target-dialect SQL: `scaffold_jrxml.py --dialect x100` refuses ordered
+  aggregates / ordered aggregate windows, correlated columns inside aggregates in
+  subqueries and `;` inside comments before any compile, because those pass the
+  JR compiler and the JRS validator and only die at fill time on an Actian
+  Vector/Avalanche datasource. The default (`postgres`) is unchanged.

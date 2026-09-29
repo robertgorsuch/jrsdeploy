@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Supply and Inventory console: the supplier scorecard. On-time delivery,
+     fill rate, quoted lead time and order volume for every supplier, sorted
+     worst on-time first so the suppliers needing attention sit at the top of
+     the tile rather than at the bottom of a scroll.
+
+     List tile pattern from chn_actions.jrxml / pnl_worst_stores.jrxml: a
+     #1F4E79 header band with white labels, a 22pt detail row, and a #D6E0EF
+     zebra rectangle gated on $V{REPORT_COUNT} % 2 so alternating rows are
+     shaded.
+
+     ONLY THE SUPPLIER FILTER APPLIES HERE, DELIBERATELY. The supplier summary
+     this tile reads is one row per supplier and carries no region, store or
+     category of its own, so there is nothing for the other three controls to
+     compare against; narrowing by them is not possible without changing what a
+     row means. All four console parameters are still DECLARED, per the
+     established convention that every tile on a filter strip accepts the
+     strip's whole parameter set (the chn_drivers precedent from the Retention
+     and Churn console), and the subtitle says the rows are supplier level so a
+     reader is not misled into thinking a region selection narrowed them. This
+     is not an oversight; do not "fix" it by inventing joins.
+
+     THE DRILL IS FIXED SCOPE, NOT ROW SCOPE. Every row's supplier cell carries
+     a JR7 ReportExecution hyperlink into the Supplier Scorecard report, using
+     the flattened <hyperlinkParameter name="..."><expression> form (the JR6
+     <hyperlinkParameterExpression> child is NOT used). It passes p_quarter as
+     the LITERAL string "All", the target report's own default, rather than any
+     value derived from this tile. That is the same convention Phase 1 used for
+     trs_tax_province to rpt_tax_remittance and Phase 2 for chn_actions to
+     rpt_churn_action_list: the target is a workable full scorecard, not a per
+     row drill, so it always opens on the full scope rather than inheriting a
+     filter the reader would then have to undo. p_quarter is the exact and only
+     parameter name the target report declares, a String.
+
+     The filter contract and the parameter naming are documented at length in
+     sup_kpi.jrxml. -->
+<jasperReport name="sup_scorecard" language="java" pageWidth="1000" pageHeight="380" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="sup_store" class="java.util.Collection"/>
+	<parameter name="sup_category" class="java.util.Collection"/>
+	<parameter name="sup_supplier" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT s.supplier_name,
+       DECIMAL(s.on_time_pct, 6, 2) AS on_time_pct,
+       DECIMAL(s.avg_fill_rate_pct, 6, 2) AS avg_fill_rate_pct,
+       s.lead_time_days,
+       s.purchase_orders AS po_count
+FROM suppliers s
+WHERE ($X{IN, s.supplier_name, sup_supplier})
+ORDER BY s.on_time_pct ASC
+	]]></query>
+
+	<field name="supplier_name" class="java.lang.String"/>
+	<field name="on_time_pct" class="java.math.BigDecimal"/>
+	<field name="avg_fill_rate_pct" class="java.math.BigDecimal"/>
+	<field name="lead_time_days" class="java.lang.Integer"/>
+	<field name="po_count" class="java.lang.Integer"/>
+
+	<title height="52">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="980" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Supplier Scorecard]]></text></element>
+		<element kind="staticText" x="0" y="26" width="980" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Supplier level performance, weakest on-time first. Click a supplier for the full scorecard.]]></text></element>
+	</title>
+
+	<columnHeader height="22">
+		<element kind="rectangle" x="0" y="0" width="980" height="22" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="6" y="0" width="380" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Supplier]]></text></element>
+		<element kind="staticText" x="396" y="0" width="140" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[On-Time]]></text></element>
+		<element kind="staticText" x="546" y="0" width="140" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Fill Rate]]></text></element>
+		<element kind="staticText" x="696" y="0" width="130" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Avg Lead Days]]></text></element>
+		<element kind="staticText" x="836" y="0" width="138" height="22" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Orders]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="22">
+			<element kind="rectangle" x="0" y="0" width="980" height="22" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" x="6" y="0" width="380" height="22" fontSize="10.0" vTextAlign="Middle" forecolor="#0550DC" linkType="ReportExecution" linkTarget="Blank">
+				<expression><![CDATA[$F{supplier_name}]]></expression>
+				<hyperlinkParameter name="_report"><expression><![CDATA["/reports/pos_perf/rpt_supplier_scorecard"]]></expression></hyperlinkParameter>
+				<hyperlinkParameter name="p_quarter"><expression><![CDATA["All"]]></expression></hyperlinkParameter>
+			</element>
+			<element kind="textField" x="396" y="0" width="140" height="22" fontSize="10.0" bold="true" forecolor="#1F4E79" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true"><expression><![CDATA[$F{on_time_pct}]]></expression></element>
+			<element kind="textField" x="546" y="0" width="140" height="22" fontSize="10.0" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true"><expression><![CDATA[$F{avg_fill_rate_pct}]]></expression></element>
+			<element kind="textField" x="696" y="0" width="130" height="22" fontSize="10.0" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true"><expression><![CDATA[$F{lead_time_days}]]></expression></element>
+			<element kind="textField" x="836" y="0" width="138" height="22" fontSize="10.0" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true"><expression><![CDATA[$F{po_count}]]></expression></element>
+			<element kind="line" x="0" y="21" width="980" height="1" forecolor="#D6E0EF"/>
+		</band>
+	</detail>
+
+</jasperReport>

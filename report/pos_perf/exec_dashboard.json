@@ -1,0 +1,62 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_executive_overview",
+  "label": "POS Executive Overview",
+  "canvasColor": "#000032",
+  "dashlets": [
+    {
+      "resource": "/reports/pos_perf/exec_map",
+      "label": "Net Sales by Province",
+      "showTitleBar": false,
+      "x": 0, "y": 0, "width": 12, "height": 16
+    },
+    {
+      "resource": "/reports/pos_perf/exec_margin_dial",
+      "label": "Gross Margin",
+      "showTitleBar": false,
+      "x": 12, "y": 0, "width": 8, "height": 9
+    },
+    {
+      "resource": "/reports/pos_perf/exec_yoy_dial",
+      "label": "YoY Sales Growth",
+      "showTitleBar": false,
+      "x": 20, "y": 0, "width": 8, "height": 9
+    },
+    {
+      "resource": "/reports/pos_perf/exec_last_updated",
+      "label": "Last Updated",
+      "showTitleBar": false,
+      "x": 28, "y": 0, "width": 12, "height": 2
+    },
+    {
+      "resource": "/reports/pos_perf/exec_region_bar",
+      "label": "Net Sales by Region",
+      "showTitleBar": false,
+      "x": 28, "y": 2, "width": 12, "height": 10
+    },
+    {
+      "resource": "/reports/pos_perf/exec_promo_mix",
+      "label": "Promotion Mix",
+      "showTitleBar": false,
+      "x": 28, "y": 12, "width": 12, "height": 11
+    },
+    {
+      "resource": "/reports/pos_perf/exec_trend",
+      "label": "Monthly Net Sales Trend",
+      "showTitleBar": false,
+      "x": 12, "y": 9, "width": 16, "height": 7
+    },
+    {
+      "resource": "/reports/pos_perf/exec_top_stores",
+      "label": "Top 6 Stores by Net Sales",
+      "showTitleBar": false,
+      "x": 0, "y": 16, "width": 14, "height": 7
+    },
+    {
+      "resource": "/reports/pos_perf/exec_kpi_strip",
+      "label": "Key Metrics",
+      "showTitleBar": false,
+      "x": 0, "y": 23, "width": 40, "height": 7
+    }
+  ]
+}

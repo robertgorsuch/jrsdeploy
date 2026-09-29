@@ -26,6 +26,20 @@
 .PARAMETER DataSourceUri
   Repository URI of an EXISTING datasource, e.g. /datasources/postgis_34_sample.
 
+.PARAMETER Env
+  Named profile under "environments" in jrs.config.json (e.g. stage, prod).
+
+.OUTPUTS
+  One PSCustomObject on the pipeline (New-JrsDeployResult in _jrs_common.ps1):
+    Uri, Code (HTTP), Status (OK), ControlsAttached (int), Message.
+  The human-readable progress lines go to the host stream only, which a
+  `2>&1` redirect does NOT capture under Windows PowerShell 5.1 -- test the
+  object instead:  $r = & .\deploy_report.ps1 ...; if ($r.Status -ne "OK") { ... }
+  Failures throw (terminating error, exit code 1 from powershell -File). A
+  403/400 `resource.in.use` (the report is a dashlet of a live dashboard and
+  its lock also blocks an ?overwrite=true PUT) is explained with the list of
+  dashboards that reference the report and the recompose hint.
+
 .EXAMPLE
   .\deploy_report.ps1 -Jrxml ..\..\report\county_summary.jrxml `
       -TargetUri /reports/geocoder/county_summary `
@@ -43,8 +57,11 @@ param(
     [switch]$Overwrite,
     [switch]$SkipSqlLint,       # bypass the SELECT-first / leading-WITH guard
     [switch]$SkipLint,          # bypass the lint_jrxml.ps1 pre-deploy gate
-    [switch]$Backup,            # before an -Overwrite, export the current version first (rollback safety)
-    [string]$BackupDir,         # where -Backup writes the archive (default: skill out\backups)
+    [switch]$Apply,             # -Overwrite PLANS BY DEFAULT (1.3.0): pass -Apply to actually overwrite. A plain
+                                # create (no -Overwrite) is not gated.
+    [switch]$Backup,            # accepted for compatibility: an -Overwrite of an existing unit backs up by default
+    [switch]$NoBackup,          # skip that backup (the overwrite is then journaled as irreversible)
+    [string]$BackupDir,         # where the backup archive goes (default: skill out\backups)
     [string[]]$Control,         # input controls: "param:kind[:label[:extra]]"
                                 #   kind=select|multiselect  extra="Food;Drink" (or lab=val;..)
                                 #   kind=single              extra=text|number|date|datetime
@@ -56,12 +73,19 @@ param(
     [string]$ControlsLayout = "popupScreen",
     [string]$ServerUrl,
     [string]$User,
-    [string]$Password
+    [string]$Password,
+    [string]$Env                # named profile in jrs.config.json "environments"
 )
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_jrs_common.ps1")
 
+# -Overwrite without -Apply runs the whole script in plan mode: the write guard
+# in _jrs_common.ps1 refuses any PUT/DELETE below (and in child scripts) even if
+# a later edit forgets the early return. Restored in the finally at the end.
+$prevMode = Enter-JrsPlanMode -Apply:($Apply -or -not $Overwrite)
+$run = $null
+try {
 if (-not (Test-Path $Jrxml)) { throw "jrxml not found: $Jrxml" }
 $jrxmlFull = (Resolve-Path $Jrxml).Path
 
@@ -102,7 +126,7 @@ if (-not $SkipLint) {
 }
 
 # --- resolve config (param -> env -> jrs.config.json, validated) ----------
-$jrs = Resolve-JrsConfig -ServerUrl $ServerUrl -User $User -Password $Password
+$jrs = Resolve-JrsConfig -ServerUrl $ServerUrl -User $User -Password $Password -Env $Env
 if (-not $DataSourceUri) { $DataSourceUri = $jrs.DataSourceUri }
 if (-not $TargetUri.StartsWith("/")) { $TargetUri = "/$TargetUri" }
 if (-not $Label) { $Label = [System.IO.Path]::GetFileNameWithoutExtension($jrxmlFull) }
@@ -146,33 +170,71 @@ if ($ResourceFiles) {
 
 # --- PUT to REST v2 -------------------------------------------------------
 # JRS uses optimistic locking, so a plain re-PUT over an existing report unit
-# fails with 409 "versions not match". -Overwrite passes ?overwrite=true, which
-# updates the resource IN PLACE -- no delete, so it also works for a report that
-# is a dependency of a dashboard (a delete-then-create would 403 on the delete,
-# since referenced resources are delete-protected).
+# fails with 409 "versions not match". -Overwrite passes ?overwrite=true.
+# Observed on JRS 10.0.0: overwrite=true RE-CREATES the unit (version resets to
+# 0, creationDate = now, inputControls dropped unless the body carries them --
+# see the preserve block below) and it is still refused with 403
+# resource.in.use while a live dashboard references the report. Tear the
+# dashboard down / recompose with -Replace first (promote.ps1 -Manifest orders
+# this for you).
 
-# --- optional rollback safety: export the current version before overwriting ---
-if ($Backup -and $Overwrite) {
-    if ((Invoke-JrsGet -Jrs $jrs -Uri $TargetUri).Code -match '^2\d\d$') {
-        $exporter = Join-Path $PSScriptRoot "export_resource.ps1"
-        if (-not $BackupDir) { $BackupDir = Join-Path $PSScriptRoot "../out/backups" }
-        New-Item -ItemType Directory -Force $BackupDir | Out-Null
-        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-        $bkName = ($TargetUri.TrimStart("/") -replace "[^0-9A-Za-z]", "_") + "-$stamp.zip"
-        $bkPath = Join-Path $BackupDir $bkName
-        $cred = @{}
-        if ($ServerUrl) { $cred.ServerUrl = $ServerUrl }
-        if ($User)      { $cred.User = $User }
-        if ($Password)  { $cred.Password = $Password }
+# --- -Overwrite: plan gate, default backup, run journal ----------------------
+$deployStep = "deploy:$TargetUri"; $deployComp = $null; $deployIrrev = $null
+if ($Overwrite) {
+    $exists = ("$((Invoke-JrsGet -Jrs $jrs -Uri $TargetUri).Code)" -match '^2\d\d$')
+    $bkWord = if ($NoBackup) { "no backup (irreversible)" } else { "backup then" }
+    $action = if ($exists) { "$bkWord OVERWRITE (re-creates the unit at version 0; live input controls carried over)" } else { "CREATE (absent on target)" }
+    $plan = @([pscustomobject]@{ Order = 1; Kind = "deploy"; Uri = $TargetUri; Action = $action })
+    Write-Host ""
+    Write-Host "DEPLOY PLAN  $TargetUri on $($jrs.ServerUrl)$(if ($jrs.Env) { " [env $($jrs.Env)]" }) (exists on target: $exists)"
+    Write-Host ("  [  1] {0,-52} {1}" -f $TargetUri, $action)
+    Write-Host ""
+    if (-not $Apply) {
+        Write-Host "[plan] nothing was written to $($jrs.ServerUrl); pass -Apply to overwrite"
+        Write-Output (New-JrsDeployResult -Uri $TargetUri -Code "PLAN" -Status PLAN -ControlsAttached 0 -Message "plan only: $action")
+        return
+    }
+    Assert-JrsWriteAllowed -Jrs $jrs -Method APPLY -Url $jrs.ServerUrl   # precheck: refuse an unconfirmed prod target BEFORE any backup/export runs
+    $run = New-JrsRun -Operation "deploy" -Target $jrs -Mode apply -Plan $plan -Arguments @{ Jrxml = $Jrxml; TargetUri = $TargetUri; Overwrite = $true; NoBackup = [bool]$NoBackup }
+    if ($exists) {
+        # rollback safety: the pre-overwrite export is the step's 'reimport' compensation
+        if ($NoBackup) { $deployIrrev = "-NoBackup" }
+        else {
+            $bkPath = Export-JrsBackup -Jrs $jrs -Uri $TargetUri -BackupDir $BackupDir
+            if ($bkPath) { Write-Host "  backup: $TargetUri -> $bkPath"; $deployComp = @{ type = "reimport"; zip = $bkPath; uri = $TargetUri } }
+            else { $deployIrrev = "backup export failed" }
+        }
+    } else { $deployComp = @{ type = "delete"; uri = $TargetUri } }
+    Write-JrsStep -Run $run -Step $deployStep -State RUNNING -Compensation $deployComp -Irreversible $deployIrrev
+}
+
+# --- -Overwrite preserves the existing input-control attachments ---------------
+# PUT ?overwrite=true re-creates the unit (version 0) and DROPS inputControls.
+# Unless this call attaches its own (-Control / -QueryControl / -QueryMultiControl),
+# carry the live list over so a redeploy never silently strips a filter board.
+# (2026-08-28: a manifest promotion redeployed 22 PROD tiles this way and every
+# dashboard import then skipped because its filter wiring had no controls.)
+$keepIcJson = $null
+if ($Overwrite -and -not ($Control -or $QueryControl -or $QueryMultiControl)) {
+    $cur0 = Invoke-JrsGet -Jrs $jrs -Uri $TargetUri
+    if ("$($cur0.Code)" -eq "200") {
         try {
-            & $exporter -Uri $TargetUri -Out $bkPath @cred *>$null
-            if (Test-Path $bkPath) { Write-Host "  backup: $TargetUri -> $bkPath" }
-        } catch { Write-Warning "backup of $TargetUri failed (continuing): $_" }
+            $o0 = $cur0.Body | ConvertFrom-Json
+            $keep = @()
+            if ($o0.PSObject.Properties.Name -contains "inputControls") { $keep = @($o0.inputControls | ForEach-Object { $_.inputControlReference.uri } | Where-Object { $_ }) }
+            if ($keep.Count -gt 0) {
+                # literal JSON: PS 5.1 ConvertTo-Json unwraps a one-element array (gotcha G56)
+                $keepIcJson = "[" + (($keep | ForEach-Object { '{"inputControlReference":{"uri":"' + $_ + '"}}' }) -join ",") + "]"
+                Write-Host "  preserving $($keep.Count) attached input control(s) across the overwrite"
+            }
+        } catch { }
     }
 }
 
 $jsonFile = [IO.Path]::GetTempFileName()
-($desc | ConvertTo-Json -Depth 8) | Set-Content -Path $jsonFile -Encoding utf8
+$descJson = ($desc | ConvertTo-Json -Depth 8)
+if ($keepIcJson) { $descJson = $descJson -replace '^\{', ('{"inputControls":' + $keepIcJson + ',') }
+$descJson | Set-Content -Path $jsonFile -Encoding utf8
 try {
     $r = Invoke-JrsPut -Jrs $jrs -Uri $TargetUri -Overwrite:$Overwrite `
         -ContentType "application/repository.reportUnit+json" -JsonFile $jsonFile
@@ -180,9 +242,30 @@ try {
     Remove-Item $jsonFile -ErrorAction SilentlyContinue
 }
 
+# --- resource.in.use: the report is a dashlet of a live dashboard and this PUT
+#     (with or without -Overwrite -- the lock blocks both). The dashboard holds
+#     a delete-lock on its tiles, so say WHICH dashboard(s) so the operator can
+#     recompose them (compose_dashboard.ps1 -Replace -Backup) instead of
+#     guessing from a bare 403.
+if ("$($r.Code)" -notmatch '^2\d\d$' -and "$($r.Body)" -match 'resource\.in\.use') {
+    $owners = @()
+    try { $owners = @(Get-JrsDashboardsReferencing -Jrs $jrs -Uri $TargetUri) } catch { $owners = @() }
+    $who = if ($owners.Count -gt 0) { "referenced by dashboard(s): " + ($owners -join ", ") }
+           else { "referenced by a dashboard (search via GET rest_v2/resources?type=dashboard found no match; it may live in another folder or organization)" }
+    Write-Host "resource.in.use: $TargetUri is $who"
+    throw ("deploy of $TargetUri failed (HTTP $($r.Code)): resource.in.use -- $who. " +
+           "-Overwrite does not help (the lock blocks ?overwrite=true too). Take the dashboard down and back up: " +
+           "compose_dashboard.ps1 -Manifest <manifest> -Replace -Backup (exports it first, deletes it, releases the lock, " +
+           "redeploy the tile, recompose) -- or promote.ps1 -Manifest, which orders teardown -> tiles -> compose. " +
+           "See references/gotchas.md (G21).")
+}
+if ($run -and "$($r.Code)" -notmatch '^2\d\d$') { Write-JrsStep -Run $run -Step $deployStep -State FAILED -Detail "HTTP $($r.Code)" }
 Assert-JrsOk -Response $r -Operation "deploy of $TargetUri failed" | Out-Null
+if ($run) { Write-JrsStep -Run $run -Step $deployStep -State SUCCEEDED -Detail "HTTP $($r.Code)" }
 Write-Host "OK ($($r.Code)): deployed $TargetUri"
 if ($r.Body) { Write-Host $r.Body }
+$deployCode = "$($r.Code)"
+$controlsAttached = 0
 
 # --- input controls -------------------------------------------------------
 # Build each control as a standalone repository resource (the verified JRS
@@ -283,4 +366,20 @@ if ($Control -or $QueryControl -or $QueryMultiControl) {
     finally { Remove-Item $f2 -ErrorAction SilentlyContinue }
     Assert-JrsOk -Response $ur -Operation "attaching controls to $TargetUri failed" | Out-Null
     Write-Host "OK: attached $($icRefs.Count) input control(s) to $TargetUri"
+    $controlsAttached = $icRefs.Count
 }
+
+# --- pipeline result (the only thing this script writes to the output stream) --
+if ($run) { Complete-JrsRun -Run $run -Status SUCCEEDED }
+$msg = "deployed $TargetUri (HTTP $deployCode)"
+if ($controlsAttached -gt 0) { $msg += ", $controlsAttached input control(s) attached" }
+if ($run -and $run.RunId -and -not $run.Nested) { $msg += " [run $($run.RunId)]" }
+Write-Output (New-JrsDeployResult -Uri $TargetUri -Code $deployCode -Status OK `
+    -ControlsAttached $controlsAttached -Message $msg)
+} catch {
+    if ($run -and -not $run.Nested) {
+        try { Complete-JrsRun -Run $run -Status FAILED -ExitCode 4 -Error "$_" } catch { }
+        Write-Host "FAILED (run $($run.RunId)); undo what was done with: recover_run.ps1 -RunId $($run.RunId) -Rollback -Apply"
+    }
+    throw
+} finally { Restore-JrsPlanMode $prevMode }

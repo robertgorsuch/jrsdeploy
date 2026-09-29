@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Marketing and Digital cockpit: email engagement funnel, percent of sent
+     that reached each stage. Sent itself is always 100 pct and is not drawn
+     as a bar - it is the implicit context the other three stages are shown
+     against.
+
+     FUNNEL ORDER IS EXPLICIT, NOT INCIDENTAL. The three stages must render
+     Opened / Clicked / Converted top to bottom, the natural funnel reading
+     order, not alphabetically (which would put Clicked first) or by value
+     (which happens to already match here but is not guaranteed to). The
+     query carries an explicit stage_order integer (1/2/3) via a UNION ALL of
+     three single-row selects, with a final ORDER BY stage_order over the
+     combined result - the same explicit-rank pattern chn_bands.jrxml uses
+     for its risk-band ordering. JR7 preserves the query's row order in a
+     category dataset (confirmed on rasterized output by both chn_bands and
+     trs_tax_province), so a horizontal bar plot renders the first row at the
+     top; stage_order pins that first row to Opened regardless of what the
+     underlying engine's UNION ALL branch order would otherwise do.
+
+     Single series, so the bar colour is a constant; the value is still zero
+     guarded (a null on the first row fails to register the series and shifts
+     the seriesColor order bindings). JR7-native bar plot
+     (showTickMarks/showTickLabels per jr7-valid-elements.md 3c), showLabels
+     on so each stage's percent reads directly off the bar. Chart is in the
+     title band, so evaluationTime="Report". Cockpit archetype: no parameters.
+
+     Expected at defaults: Opened 37.65, Clicked 12.10, Converted 4.71
+     (verified 2026-08-25). -->
+<jasperReport name="mkt_funnel" language="java" pageWidth="560" pageHeight="440" columnWidth="540" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT 'Opened' AS stage, 1 AS stage_order, DECIMAL(100.0 * FLOAT8(SUM(opened)) / FLOAT8(NULLIF(SUM(sent), 0)), 6, 2) AS pct_of_sent FROM dash_email
+UNION ALL
+SELECT 'Clicked', 2, DECIMAL(100.0 * FLOAT8(SUM(clicked)) / FLOAT8(NULLIF(SUM(sent), 0)), 6, 2) FROM dash_email
+UNION ALL
+SELECT 'Converted', 3, DECIMAL(100.0 * FLOAT8(SUM(converted)) / FLOAT8(NULLIF(SUM(sent), 0)), 6, 2) FROM dash_email
+ORDER BY stage_order
+	]]></query>
+
+	<field name="stage" class="java.lang.String"/>
+	<field name="stage_order" class="java.lang.Integer"/>
+	<field name="pct_of_sent" class="java.math.BigDecimal"/>
+
+	<title height="420">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="540" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Email Funnel]]></text></element>
+		<element kind="staticText" x="0" y="26" width="540" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Percent of sent emails reaching each stage]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="540" height="372" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Pct of Sent"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{stage}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{pct_of_sent} == null ? java.math.BigDecimal.ZERO : $F{pct_of_sent}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true" showLabels="true">
+				<seriesColor order="0" color="#0550DC"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

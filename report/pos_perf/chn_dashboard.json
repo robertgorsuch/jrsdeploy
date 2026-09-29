@@ -1,0 +1,14 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_retention_churn",
+  "label": "POS Retention and Churn",
+  "filters": ["chn_score_date", "p_regions", "chn_tier", "chn_band"],
+  "dashlets": [
+    { "resource": "/reports/pos_perf/chn_kpi",       "label": "Key Metrics",          "showTitleBar": false, "x": 0,  "y": 0,  "width": 40, "height": 4 },
+    { "resource": "/reports/pos_perf/chn_bands",     "label": "Risk Bands",           "showTitleBar": false, "x": 0,  "y": 4,  "width": 14, "height": 11 },
+    { "resource": "/reports/pos_perf/chn_ltv_band",  "label": "LTV at Risk by Band",  "showTitleBar": false, "x": 14, "y": 4,  "width": 13, "height": 11 },
+    { "resource": "/reports/pos_perf/chn_drivers",   "label": "Top Churn Drivers",    "showTitleBar": false, "x": 27, "y": 4,  "width": 13, "height": 11 },
+    { "resource": "/reports/pos_perf/chn_cohorts",   "label": "Cohort Retention",     "showTitleBar": false, "x": 0,  "y": 15, "width": 21, "height": 10 },
+    { "resource": "/reports/pos_perf/chn_actions",   "label": "Recommended Actions",  "showTitleBar": false, "x": 21, "y": 15, "width": 19, "height": 10 }
+  ]
+}

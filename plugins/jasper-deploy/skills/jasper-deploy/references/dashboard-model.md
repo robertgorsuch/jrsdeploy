@@ -50,14 +50,41 @@ skip). Deleting it also releases the `resource.in.use` locks on the dashlet
 reports. If you ever import by hand, DELETE the dashboard first.
 
 ## Designer hand-edits vs the manifest — keep them in sync
-Rearranging a dashboard in the JRS designer changes the live `layout`, but the
-compose **manifest** is unaware — a later recompose would revert the hand edits.
-After any designer rearrange, re-derive the manifest from the live dashboard:
+Rearranging a dashboard in the JRS designer changes the live `layout` and
+`components` (positions, sizes, scale-to-fit, title bars, toolbar buttons,
+filter-strip docking), but the compose **manifest** is unaware -- a later
+recompose would revert the hand edits. After any designer edit, sync the
+manifest from the live dashboard:
 ```powershell
-& scripts\sync_manifest_from_dashboard.ps1 -Uri /reports/<folder>/<name> -Out report\<...>.json
+& scripts\sync_manifest_from_dashboard.ps1 -Manifest report\pos_perf\trs_dashboard.json -Env stage -WhatIf  # diff only
+& scripts\sync_manifest_from_dashboard.ps1 -Manifest report\pos_perf\trs_dashboard.json -Env stage          # update in place
+& scripts\sync_manifest_from_dashboard.ps1 -Uri /reports/<folder>/<name> -Out report\<new>.json              # fresh manifest
 ```
-It exports the dashboard and rewrites the manifest's dashlet list + x/y/w/h (report,
-text, and image tiles) to match the live layout. Then recompose is safe.
+`-Manifest` updates the file **in place**: every other key (queries, `outDir`,
+`controls`, per-tile build settings) and the key order survive, tiles are
+matched by `resource` (or kind+name), and a unified diff is printed. Synced
+keys, mirroring exactly what `gen_dashboard.py` writes:
+- dashboard: `autoRefresh`, `showExportButton`, `showPrintButton`, `canvasColor`,
+  `dashletFilterShowPopup`, `filters[]`, `filterControlFolder`, `filterOwner`,
+  `filterButtonsPosition`, `filterFloating` (docked = `false`), `filterStripHeight`
+- report tile: `x/y/width/height`, `scaleToFit`, `showTitleBar` (tile `y` is
+  stored WITHOUT the filter-strip offset that the generator adds back)
+- text tile: `text`, `size`, `align`, `bold`, `italic`, `color`, `background`, `valign`
+- image tile: `url`, `scaleToFit`
+
+The round trip is a fixed point: `gen -> export -> sync -> gen` reproduces the
+same `layout` / `components.data` / `wiring.data` (`tests\sync_manifest.Tests.ps1`).
+Then a `compose_dashboard.ps1 -Replace` is safe.
+
+## Manifest `controls` key and promotion
+A manifest may declare the input controls its tiles/filter strip need
+(`"controls": {folder, dataSourceUri, controls:[{name,label,type|kind,values|
+query+valueColumn,dataType}]}` or a bare array); `ensure_controls.ps1`,
+`compose_dashboard.ps1 -EnsureControls` and `promote.ps1 -Manifest
+-EnsureControls` create them idempotently (GET first). A per-dashlet
+`"controls": [...]` names what to re-attach to that report unit after a
+redeploy. Full field list: `references/manifest.schema.json`; workflow:
+`references/dashboards.md`.
 
 ## Tile sizing rule (avoid scrollbars / whitespace)
 Tiles render the report scaled **to the tile width** (`scaleToFit:width`), so the
@@ -88,9 +115,10 @@ report's page aspect drives the fit:
   trim to a wide-short page (e.g. 800×214).
 
 ## What is NOT synthesizable (designer-only)
-- **filterGroup + inputControl tiles** — the interactive filter UI depends on
-  designer-generated temp resources (`tmpAdv_*_files`, `ownerResourceId`), so a
-  real filter group must be authored in the designer.
+- **Ad hoc/OLAP-backed filter groups** -- the manifest `filters` key synthesizes
+  a docked filterGroup + one inputControl component per control for REPORT
+  tiles (`ownerResourceId` = the owning report); filter UIs over ad hoc views
+  still depend on designer-generated temp resources (`tmpAdv_*_files`).
 - **Ad hoc views** (`adhocDataView`) — a large opaque `<unifiedState>` (chart
   state, filters, columns) on top of a **Domain** semantic layer (`schema.xml`)
   and an auto-generated topic jrxml. Author in the Ad Hoc Designer; promote with

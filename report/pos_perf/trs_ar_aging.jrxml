@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Franchise Treasury console: outstanding franchise-fee receivables split by
+     aging bucket. Single-series bar (brand blue) with value labels on the bars;
+     the legend is suppressed because one series needs no key. The buckets are
+     ordered by an explicit CASE rank rather than alphabetically so the chart
+     reads Current -> 1-30 -> 31-60 -> 60+ left to right.
+     JR7-native bar plot (showTickMarks/showTickLabels/showLabels per
+     jr7-valid-elements.md 3c); the chart lives in the title band, so
+     evaluationTime="Report".
+
+     The tile title is a textField, not a staticText, so it can carry a
+     linkType="ReportExecution" drill to the Franchise Receivables Aging
+     statement. The repeated <hyperlinkParameter name="..."><expression> form is
+     the JR7 flattened one (the JR6 <hyperlinkParameterExpression> child is not
+     used). It hands the target the as-of month and the region selection the
+     console is currently filtered to, so the statement opens on the same
+     slice. -->
+<jasperReport name="trs_ar_aging" language="java" pageWidth="600" pageHeight="420" columnWidth="580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_asof" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_franchisee" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT aging_bucket, DECIMAL(SUM(balance), 14, 2) AS balance,
+       CASE aging_bucket WHEN 'Current' THEN 1 WHEN '1-30 days' THEN 2 WHEN '31-60 days' THEN 3 ELSE 4 END AS ord
+FROM franchise_fee_ledger WHERE status <> 'Paid' AND yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions} AND $X{IN, franchisee_id, p_franchisee}
+GROUP BY aging_bucket ORDER BY ord
+	]]></query>
+
+	<field name="aging_bucket" class="java.lang.String"/>
+	<field name="balance" class="java.math.BigDecimal"/>
+	<field name="ord" class="java.lang.Integer"/>
+
+	<title height="400">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="textField" x="0" y="2" width="580" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" linkType="ReportExecution" linkTarget="Blank">
+			<expression><![CDATA["Receivables Aging"]]></expression>
+			<hyperlinkParameter name="_report"><expression><![CDATA["/reports/pos_perf/rpt_ar_aging"]]></expression></hyperlinkParameter>
+			<hyperlinkParameter name="p_asof"><expression><![CDATA[$P{p_asof}]]></expression></hyperlinkParameter>
+			<hyperlinkParameter name="p_regions"><expression><![CDATA[$P{p_regions}]]></expression></hyperlinkParameter>
+			<hyperlinkParameter name="p_franchisee"><expression><![CDATA[$P{p_franchisee}]]></expression></hyperlinkParameter>
+		</element>
+		<element kind="textField" x="0" y="26" width="580" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA["Unpaid franchise fees in CAD. Ledger as of 2020-12-31, invoices through " + $P{p_asof}.substring(0, 4) + "-" + $P{p_asof}.substring(4)]]></expression></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="580" height="352" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Outstanding"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{aging_bucket}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{balance}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" showLabels="true">
+				<seriesColor order="0" color="#0550DC"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

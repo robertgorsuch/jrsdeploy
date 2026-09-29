@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Store Profit and Budget cockpit: 6-up KPI strip. Layout pattern mirrors
+     ops_kpi_chips.jrxml (divider lines, 13pt label / 26pt value, centered,
+     evaluationTime="Report" so the single result row is available in the title
+     band). No parameters - the cockpit is unfiltered.
+
+     DEVIATION from the task brief's "five cells at x = 10/326/642/958/1274":
+     the brief's own label + sub-line list names SIX metrics (net sales, plan
+     attainment, gross margin, four-wall EBITDA with a "vs budget" sub-line,
+     labour % of sales, and loss-making stores with a "stores with negative 2020
+     EBITDA" sub-line), which does not fit five 300px cells. The strip is
+     therefore laid out as six equal cells across the 1580px column
+     (263px pitch, dividers on the cell boundaries, same rhythm as
+     ops_kpi_chips) so every field the brief's query returns is displayed.
+
+     The EBITDA variance sub-line has to change colour with its sign.
+     <propertyExpression name="net.sf.jasperreports.style.forecolor"> is not
+     JR7-valid, so the sub-line is TWO overlapping textFields at the same
+     coordinates, each gated by a <printWhenExpression> on the sign: green
+     (#5CB85C) when favourable, red (#D9534F) when unfavourable. JR7-native. -->
+<jasperReport name="pnl_kpi_strip" language="java" pageWidth="1600" pageHeight="130" columnWidth="1580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT DECIMAL(SUM(p.net_sales), 14, 2) AS net_sales,
+       DECIMAL(100.0 * FLOAT8(SUM(p.net_sales)) / FLOAT8(NULLIF(SUM(t.target_sales), 0)), 6, 2) AS plan_attainment_pct,
+       DECIMAL(100.0 * FLOAT8(SUM(p.gross_margin)) / FLOAT8(NULLIF(SUM(p.net_sales), 0)), 6, 2) AS gm_pct,
+       DECIMAL(SUM(p.four_wall_ebitda), 14, 2) AS four_wall_ebitda,
+       DECIMAL(100.0 * FLOAT8(SUM(b.actual_four_wall_ebitda) - SUM(b.budget_four_wall_ebitda)) / FLOAT8(NULLIF(SUM(b.budget_four_wall_ebitda), 0)), 6, 2) AS ebitda_var_vs_budget_pct,
+       DECIMAL(100.0 * FLOAT8(SUM(p.labour_cost + p.labour_burden)) / FLOAT8(NULLIF(SUM(p.net_sales), 0)), 6, 2) AS labour_pct,
+       (SELECT COUNT(*) FROM (SELECT storenumber FROM store_pnl_monthly WHERE yr = 2020 AND trading_status = 'Trading' GROUP BY storenumber HAVING SUM(four_wall_ebitda) < 0) x) AS loss_stores
+FROM store_pnl_monthly p
+LEFT JOIN sales_targets t ON t.storenumber = p.storenumber AND t.yyyymm = p.yyyymm
+LEFT JOIN store_budget_vs_actual b ON b.storenumber = p.storenumber AND b.yyyymm = p.yyyymm AND b.budget_version = 'Original'
+WHERE p.yr = 2020
+	]]></query>
+
+	<field name="net_sales" class="java.math.BigDecimal"/>
+	<field name="plan_attainment_pct" class="java.math.BigDecimal"/>
+	<field name="gm_pct" class="java.math.BigDecimal"/>
+	<field name="four_wall_ebitda" class="java.math.BigDecimal"/>
+	<field name="ebitda_var_vs_budget_pct" class="java.math.BigDecimal"/>
+	<field name="labour_pct" class="java.math.BigDecimal"/>
+	<field name="loss_stores" class="java.lang.Long"/>
+
+	<title height="110">
+		<element kind="staticText" x="0" y="8" width="263" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Net Sales 2020]]></text></element>
+		<element kind="textField" x="0" y="30" width="263" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0" evaluationTime="Report"><expression><![CDATA[$F{net_sales}]]></expression></element>
+
+		<element kind="line" x="263" y="20" width="1" height="70" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="263" y="8" width="263" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Plan Attainment]]></text></element>
+		<element kind="textField" x="263" y="30" width="263" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" evaluationTime="Report"><expression><![CDATA[$F{plan_attainment_pct}]]></expression></element>
+
+		<element kind="line" x="526" y="20" width="1" height="70" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="526" y="8" width="263" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Gross Margin]]></text></element>
+		<element kind="textField" x="526" y="30" width="263" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" evaluationTime="Report"><expression><![CDATA[$F{gm_pct}]]></expression></element>
+
+		<element kind="line" x="789" y="20" width="1" height="70" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="789" y="8" width="263" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Four-Wall EBITDA 2020]]></text></element>
+		<element kind="textField" x="789" y="30" width="263" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0" evaluationTime="Report"><expression><![CDATA[$F{four_wall_ebitda}]]></expression></element>
+		<element kind="textField" x="789" y="76" width="263" height="16" fontSize="9.0" forecolor="#5CB85C" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA["vs budget +" + $F{ebitda_var_vs_budget_pct} + "%"]]></expression>
+			<printWhenExpression><![CDATA[$F{ebitda_var_vs_budget_pct} != null && $F{ebitda_var_vs_budget_pct}.signum() >= 0]]></printWhenExpression>
+		</element>
+		<element kind="textField" x="789" y="76" width="263" height="16" fontSize="9.0" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle">
+			<expression><![CDATA["vs budget " + $F{ebitda_var_vs_budget_pct} + "%"]]></expression>
+			<printWhenExpression><![CDATA[$F{ebitda_var_vs_budget_pct} != null && $F{ebitda_var_vs_budget_pct}.signum() < 0]]></printWhenExpression>
+		</element>
+
+		<element kind="line" x="1052" y="20" width="1" height="70" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="1052" y="8" width="263" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Labour % of Sales]]></text></element>
+		<element kind="textField" x="1052" y="30" width="263" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" evaluationTime="Report"><expression><![CDATA[$F{labour_pct}]]></expression></element>
+
+		<element kind="line" x="1315" y="20" width="1" height="70" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="1315" y="8" width="265" height="20" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Loss-Making Stores]]></text></element>
+		<element kind="textField" x="1315" y="30" width="265" height="44" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0" evaluationTime="Report"><expression><![CDATA[$F{loss_stores}]]></expression></element>
+		<element kind="staticText" x="1315" y="76" width="265" height="16" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[stores with negative 2020 EBITDA]]></text></element>
+	</title>
+
+</jasperReport>

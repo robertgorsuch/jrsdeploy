@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-authored (JR7-native, mirrors scaffold_jrxml.py's output conventions).
+     scaffold_jrxml.py's column introspection shells out to `psql`, which speaks
+     the PostgreSQL wire protocol; the target here is the Ingres/Avalanche
+     warehouse (jdbc:ingres://...:27839), so psql cannot introspect dash_kpi.
+     Field classes below are taken from the known Task 3 verification output
+     (sales_ext NUMERIC -> BigDecimal, tx/qty integer counts -> Long, safe for
+     either int4 or int8 JDBC return types). -->
+<jasperReport name="smoke_kpi" language="java"
+    pageWidth="595" pageHeight="200" columnWidth="555"
+    leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20">
+
+    <query language="SQL"><![CDATA[
+SELECT sales_ext, tx, qty FROM dash_kpi
+    ]]></query>
+
+    <field name="sales_ext" class="java.math.BigDecimal"/>
+    <field name="tx" class="java.lang.Long"/>
+    <field name="qty" class="java.lang.Long"/>
+
+    <title height="80">
+        <element kind="image" x="0" y="0" width="44" height="44"
+            scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top">
+            <expression><![CDATA["repo:/images/actian_logo"]]></expression>
+        </element>
+        <element kind="staticText" x="0" y="0" width="555" height="24" fontSize="16.0"
+            bold="true" forecolor="#000000" hTextAlign="Center">
+            <text><![CDATA[POS Perf -- Avalanche Smoke Test]]></text>
+        </element>
+        <element kind="staticText" x="0" y="26" width="555" height="14" fontSize="9.0"
+            forecolor="#666666" hTextAlign="Center">
+            <text><![CDATA[/datasources/pos_data_avalanche -- SELECT sales_ext, tx, qty FROM dash_kpi]]></text>
+        </element>
+    </title>
+
+    <detail>
+        <band height="70">
+            <element kind="staticText" x="0" y="0" width="180" height="16" fontSize="9.0"
+                bold="true" forecolor="#34495E">
+                <text><![CDATA[Net Sales (sales_ext)]]></text>
+            </element>
+            <element kind="textField" x="0" y="16" width="180" height="24" fontSize="14.0"
+                bold="true" hTextAlign="Left" pattern="#,##0.00">
+                <expression><![CDATA[$F{sales_ext}]]></expression>
+            </element>
+
+            <element kind="staticText" x="190" y="0" width="170" height="16" fontSize="9.0"
+                bold="true" forecolor="#34495E">
+                <text><![CDATA[Transactions (tx)]]></text>
+            </element>
+            <element kind="textField" x="190" y="16" width="170" height="24" fontSize="14.0"
+                bold="true" hTextAlign="Left" pattern="#,##0">
+                <expression><![CDATA[$F{tx}]]></expression>
+            </element>
+
+            <element kind="staticText" x="370" y="0" width="180" height="16" fontSize="9.0"
+                bold="true" forecolor="#34495E">
+                <text><![CDATA[Quantity (qty)]]></text>
+            </element>
+            <element kind="textField" x="370" y="16" width="180" height="24" fontSize="14.0"
+                bold="true" hTextAlign="Left" pattern="#,##0">
+                <expression><![CDATA[$F{qty}]]></expression>
+            </element>
+
+            <element kind="line" x="0" y="50" width="555" height="1" forecolor="#EEEEEE"/>
+        </band>
+    </detail>
+
+    <pageFooter height="16">
+        <element kind="staticText" x="0" y="2" width="277" height="12" fontSize="8.0"
+            forecolor="#666666">
+            <text><![CDATA[POS Perf -- Avalanche Smoke Test]]></text>
+        </element>
+    </pageFooter>
+
+</jasperReport>

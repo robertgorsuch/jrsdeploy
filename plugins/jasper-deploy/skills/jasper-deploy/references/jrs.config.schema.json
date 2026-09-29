@@ -36,7 +36,11 @@
     },
     "chartCustomizerJar": {
       "type": "string",
-      "description": "Optional. Absolute path to actian-chart-customizers.jar inside your JRS webapp's WEB-INF/lib, used only by doctor.ps1 to confirm the bar-gradient chart customizer is on the live classpath. Install-/OS-specific; on Windows doctor.ps1 falls back to the standard C:\\Jaspersoft install path when this is unset."
+      "description": "Optional. Absolute path to actian-chart-customizers.jar inside your JRS webapp's WEB-INF/lib, used only by doctor.ps1 to confirm the bar-gradient chart customizer is on the live classpath. Prefer jrsWebappDir (doctor derives WEB-INF/lib from it). Install-/OS-specific; on Windows doctor.ps1 falls back to the standard C:\\Jaspersoft install path when both are unset."
+    },
+    "jrsWebappDir": {
+      "type": "string",
+      "description": "Optional. Absolute path of the deployed JRS webapp directory on THIS machine (the exploded war, e.g. C:\\Jaspersoft\\jasperreports-server-10.0.0\\apache-tomcat\\webapps\\jasperserver-pro or /opt/jasperserver/apache-tomcat/webapps/jasperserver-pro). Used only by doctor.ps1: (a) <dir>/WEB-INF/lib/actian-chart-customizers.jar is checked for presence and its SHA-256 compared with the bundled chart_customizers jar; (b) <dir>/META-INF/context.xml (or WEB-INF/js.jdbc.properties) is parsed for the repository jdbc URL so the REAL metadata-DB port is reported and cross-checked against repoDb. Leave unset on a machine that only talks to a remote server."
     },
     "environments": {
       "type": "object",

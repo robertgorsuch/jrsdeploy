@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Workforce and Labour cockpit: visitor-to-transaction conversion by
+     region. Four categories, single series, legend off, horizontal bars
+     (same plot shape as lab_format.jrxml and chn_bands.jrxml).
+
+     Region column name, checked rather than guessed: the daily traffic table
+     carries no region of its own, so the join to the store dimension is
+     required. The store dimension names that field plain "region" - NOT
+     "home_region", which is the customer dimension's spelling. Confirmed
+     against the warehouse catalogue for the store table before this query was
+     written; the store-grain convention elsewhere in this suite (the monthly
+     store profit table) is the same plain "region".
+
+     Verified in the warehouse: Atlantic 35.11, Western 35.03, Ontario 35.01,
+     Quebec 34.96 - the regions sit within a sixth of a point of one another,
+     so the tile's honest message is that conversion does not vary by region,
+     and the value labels rather than the bar lengths carry the information.
+
+     Single series, so the bar colour is a constant; the value is still zero
+     guarded, since a null on the first row fails to register the series and
+     shifts the seriesColor order bindings.
+
+     JR7-native bar plot (showTickMarks/showTickLabels per
+     jr7-valid-elements.md 3c), showLabels on because four bars of nearly
+     equal length need their numbers. Chart is in the title band, so
+     evaluationTime="Report". Cockpit archetype: no parameters. -->
+<jasperReport name="lab_conversion" language="java" pageWidth="1000" pageHeight="380" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT s.region AS region,
+       DECIMAL(AVG(t.conversion_pct), 6, 2) AS conversion_pct
+FROM store_traffic t
+JOIN stores s ON s.storenumber = t.storenumber
+GROUP BY s.region
+ORDER BY conversion_pct DESC
+	]]></query>
+
+	<field name="region" class="java.lang.String"/>
+	<field name="conversion_pct" class="java.math.BigDecimal"/>
+
+	<title height="360">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="980" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Traffic Conversion by Region]]></text></element>
+		<element kind="staticText" x="0" y="26" width="980" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Average percent of store visitors who complete a purchase]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="980" height="312" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Conversion"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{region} == null ? "Unassigned" : $F{region}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{conversion_pct} == null ? java.math.BigDecimal.ZERO : $F{conversion_pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true" showLabels="true">
+				<seriesColor order="0" color="#1DB6C0"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Inventory Reorder List: a standalone operational pick list, one row per
+     store/PLU currently at or below its reorder point. No dashboard tile
+     drills into this report in this suite - it is scheduled/launched
+     directly from JRS - so there is no drill-contract parameter naming to
+     preserve, just the one filter dimension the spec calls for.
+
+     PARAMETER - p_store is a String, matching the "All"-or-exact-match idiom
+     used by rpt_tax_remittance's p_province: the sentinel short-circuits the
+     store predicate for the unfiltered run, and VARCHAR(storenumber) lets the
+     integer column compare against the String parameter for a single-store
+     filter without a cast on the parameter side.
+
+     DESIGN NOTES:
+
+     1. THIS LIST IS DELIBERATELY NOT CAPPED. Unlike the Phase 2 Churn Action
+        List (1.36M-row population, ranked and capped to 500 because nobody
+        can work a list that size), the reorder population here is the union
+        of the Reorder, Critical and Out of Stock stock_status rows - about
+        85,573 rows at default filters. That is a real, workable operational
+        pick list, not a dashboard summary, so every qualifying row prints.
+        Sorting by days_of_supply ascending puts the most urgent picks first
+        within each page run, which matters precisely because the list is
+        long enough that nobody reads past the first several pages.
+
+     2. Status is coloured by two overlapping textFields gated on
+        printWhenExpression rather than a conditionalStyle, per the Phase 1/2
+        precedent (Store P and L Statement, Churn Action List): Critical and
+        Out of Stock print red and bold, every other status prints in the
+        standard body colour. The two expressions are exact complements, so
+        exactly one prints on every row.
+
+     3. whenNoDataType="AllSectionsNoDetail" - a single-store filter can land
+        on a store with nothing at or below its reorder point, and that must
+        still render the branded page with its headers, not a blank sheet.
+
+     4. A4 landscape (842x595) with 30pt margins, 782pt column width. Eleven
+        columns including two free-text fields (product name, supplier name)
+        need the extra width a portrait layout would not give.
+
+     JR7-native throughout: <query language="SQL">, <element kind="...">. -->
+<jasperReport name="rpt_inventory_reorder" language="java" pageWidth="842" pageHeight="595" orientation="Landscape" columnWidth="782" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" whenNoDataType="AllSectionsNoDetail">
+
+	<style name="inv_cell" fontSize="8.0" forecolor="#1F4E79"/>
+
+	<parameter name="p_store" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT storenumber, storename, plu, product_name, category, supplier_name,
+       on_hand_qty, reorder_point, reorder_qty, lead_time_days,
+       days_of_supply, stock_status
+FROM inventory
+WHERE on_hand_qty <= reorder_point
+  AND ('All' = $P{p_store} OR VARCHAR(storenumber) = $P{p_store})
+ORDER BY days_of_supply ASC, storenumber
+	]]></query>
+
+	<field name="storenumber" class="java.lang.Integer"/>
+	<field name="storename" class="java.lang.String"/>
+	<field name="plu" class="java.lang.String"/>
+	<field name="product_name" class="java.lang.String"/>
+	<field name="category" class="java.lang.String"/>
+	<field name="supplier_name" class="java.lang.String"/>
+	<field name="on_hand_qty" class="java.lang.Integer"/>
+	<field name="reorder_point" class="java.lang.Integer"/>
+	<field name="reorder_qty" class="java.lang.Integer"/>
+	<field name="lead_time_days" class="java.lang.Integer"/>
+	<field name="days_of_supply" class="java.math.BigDecimal"/>
+	<field name="stock_status" class="java.lang.String"/>
+
+	<variable name="rpt_total" class="java.lang.Integer" calculation="Count">
+		<expression><![CDATA[$F{plu}]]></expression>
+	</variable>
+	<variable name="rpt_critical_n" class="java.lang.Integer" calculation="Sum">
+		<expression><![CDATA["Critical".equals($F{stock_status}) ? Integer.valueOf(1) : Integer.valueOf(0)]]></expression>
+	</variable>
+	<variable name="rpt_oos_n" class="java.lang.Integer" calculation="Sum">
+		<expression><![CDATA["Out of Stock".equals($F{stock_status}) ? Integer.valueOf(1) : Integer.valueOf(0)]]></expression>
+	</variable>
+	<variable name="rpt_reorder_n" class="java.lang.Integer" calculation="Sum">
+		<expression><![CDATA["Reorder".equals($F{stock_status}) ? Integer.valueOf(1) : Integer.valueOf(0)]]></expression>
+	</variable>
+
+	<title height="56">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="782" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Inventory Reorder List]]></text></element>
+		<element kind="textField" x="0" y="26" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["Store: " + $P{p_store} + " -- PLUs at or below reorder point"]]></expression>
+		</element>
+		<element kind="line" x="0" y="50" width="782" height="1" forecolor="#D6E0EF"/>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="782" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="4" y="0" width="90" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Store]]></text></element>
+		<element kind="staticText" x="94" y="0" width="44" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[PLU]]></text></element>
+		<element kind="staticText" x="138" y="0" width="180" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Product]]></text></element>
+		<element kind="staticText" x="318" y="0" width="70" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Category]]></text></element>
+		<element kind="staticText" x="388" y="0" width="116" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Supplier]]></text></element>
+		<element kind="staticText" x="504" y="0" width="44" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[On Hand]]></text></element>
+		<element kind="staticText" x="548" y="0" width="50" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Reorder Pt]]></text></element>
+		<element kind="staticText" x="598" y="0" width="46" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Reorder Qty]]></text></element>
+		<element kind="staticText" x="644" y="0" width="38" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Lead Days]]></text></element>
+		<element kind="staticText" x="682" y="0" width="48" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Days Supply]]></text></element>
+		<element kind="staticText" x="730" y="0" width="52" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Status]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="14">
+			<element kind="rectangle" x="0" y="0" width="782" height="14" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="inv_cell" x="4" y="0" width="90" height="14" vTextAlign="Middle">
+				<expression><![CDATA[$F{storenumber} + " " + $F{storename}]]></expression>
+			</element>
+			<element kind="textField" style="inv_cell" x="94" y="0" width="44" height="14" vTextAlign="Middle">
+				<expression><![CDATA[$F{plu}]]></expression>
+			</element>
+			<element kind="textField" style="inv_cell" x="138" y="0" width="180" height="14" vTextAlign="Middle" blankWhenNull="true">
+				<expression><![CDATA[$F{product_name}]]></expression>
+			</element>
+			<element kind="textField" style="inv_cell" x="318" y="0" width="70" height="14" vTextAlign="Middle" blankWhenNull="true">
+				<expression><![CDATA[$F{category}]]></expression>
+			</element>
+			<element kind="textField" style="inv_cell" x="388" y="0" width="116" height="14" vTextAlign="Middle" blankWhenNull="true">
+				<expression><![CDATA[$F{supplier_name}]]></expression>
+			</element>
+			<element kind="textField" style="inv_cell" x="504" y="0" width="44" height="14" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0">
+				<expression><![CDATA[$F{on_hand_qty}]]></expression>
+			</element>
+			<element kind="textField" style="inv_cell" x="548" y="0" width="50" height="14" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0">
+				<expression><![CDATA[$F{reorder_point}]]></expression>
+			</element>
+			<element kind="textField" style="inv_cell" x="598" y="0" width="46" height="14" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0">
+				<expression><![CDATA[$F{reorder_qty}]]></expression>
+			</element>
+			<element kind="textField" style="inv_cell" x="644" y="0" width="38" height="14" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0">
+				<expression><![CDATA[$F{lead_time_days}]]></expression>
+			</element>
+			<element kind="textField" style="inv_cell" x="682" y="0" width="48" height="14" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0.0" blankWhenNull="true">
+				<expression><![CDATA[$F{days_of_supply}]]></expression>
+			</element>
+
+			<element kind="textField" x="730" y="0" width="52" height="14" fontSize="8.0" bold="true" forecolor="#D9534F" vTextAlign="Middle">
+				<expression><![CDATA[$F{stock_status}]]></expression>
+				<printWhenExpression><![CDATA["Critical".equals($F{stock_status}) || "Out of Stock".equals($F{stock_status})]]></printWhenExpression>
+			</element>
+			<element kind="textField" x="730" y="0" width="52" height="14" fontSize="8.0" forecolor="#1F4E79" vTextAlign="Middle">
+				<expression><![CDATA[$F{stock_status}]]></expression>
+				<printWhenExpression><![CDATA[!("Critical".equals($F{stock_status}) || "Out of Stock".equals($F{stock_status}))]]></printWhenExpression>
+			</element>
+		</band>
+	</detail>
+
+	<pageFooter height="18">
+		<element kind="line" x="0" y="0" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="textField" x="0" y="4" width="500" height="12" fontSize="8.0" forecolor="#5B7DA6">
+			<expression><![CDATA["Inventory Reorder List -- sorted by days of supply, most urgent first"]]></expression>
+		</element>
+		<element kind="textField" x="600" y="4" width="112" height="12" fontSize="8.0" forecolor="#5B7DA6" hTextAlign="Right">
+			<expression><![CDATA["Page " + $V{PAGE_NUMBER} + " of"]]></expression>
+		</element>
+		<element kind="textField" x="730" y="4" width="52" height="12" fontSize="8.0" forecolor="#5B7DA6" evaluationTime="Report">
+			<expression><![CDATA[" " + $V{PAGE_NUMBER}]]></expression>
+		</element>
+	</pageFooter>
+
+	<summary height="90">
+		<element kind="line" x="0" y="4" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="0" y="10" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Full reorder population for the store selected -- not ranked or capped]]></text></element>
+
+		<element kind="staticText" x="0" y="30" width="196" height="18" fontSize="11.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Total picks]]></text></element>
+		<element kind="staticText" x="196" y="30" width="196" height="18" fontSize="11.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Out of Stock]]></text></element>
+		<element kind="staticText" x="392" y="30" width="196" height="18" fontSize="11.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Critical]]></text></element>
+		<element kind="staticText" x="588" y="30" width="194" height="18" fontSize="11.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Reorder]]></text></element>
+
+		<element kind="textField" x="0" y="50" width="196" height="30" fontSize="22.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_total} == null ? Integer.valueOf(0) : $V{rpt_total}]]></expression>
+		</element>
+		<element kind="textField" x="196" y="50" width="196" height="30" fontSize="22.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_oos_n} == null ? Integer.valueOf(0) : $V{rpt_oos_n}]]></expression>
+		</element>
+		<element kind="textField" x="392" y="50" width="196" height="30" fontSize="22.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_critical_n} == null ? Integer.valueOf(0) : $V{rpt_critical_n}]]></expression>
+		</element>
+		<element kind="textField" x="588" y="50" width="194" height="30" fontSize="22.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0">
+			<expression><![CDATA[$V{rpt_reorder_n} == null ? Integer.valueOf(0) : $V{rpt_reorder_n}]]></expression>
+		</element>
+	</summary>
+
+</jasperReport>

@@ -1,0 +1,21 @@
+{
+  "$comment": "Example input-control spec for scripts/ensure_controls.ps1 (also valid as the 'controls' key of a dashboard manifest). No credentials: the server comes from jrs.config.json / -Env. Types: 1 bool, 2 single value, 3 single-select LOV, 4 single-select query, 5 multi value, 6 multi-select LOV, 7 multi-select query.",
+  "folder": "/reports/example/controls",
+  "dataSourceUri": "/datasources/example_warehouse",
+  "controls": [
+    { "name": "p_yyyymm", "label": "Month", "type": 3,
+      "values": ["202401=202401", "202402=202402", "202403=202403"] },
+    { "name": "p_version", "label": "Budget version", "kind": "lov",
+      "values": [ { "label": "Original", "value": "Original" }, { "label": "Reforecast Q2", "value": "Reforecast Q2" } ] },
+    { "name": "p_regions", "label": "Regions", "type": 6,
+      "values": ["All", "East", "West"] },
+    { "name": "p_store", "label": "Store", "type": 4,
+      "query": "SELECT DISTINCT storenumber FROM stores ORDER BY 1",
+      "valueColumn": "storenumber" },
+    { "name": "p_franchisee", "label": "Franchisee", "kind": "multiquery",
+      "query": "SELECT franchisee_id AS fv, franchisee_name AS fl FROM franchisees ORDER BY 2",
+      "valueColumn": "fv", "labelColumn": "fl" },
+    { "name": "p_asof", "label": "As of date", "type": 2, "dataType": "date" },
+    { "name": "p_include_closed", "label": "Include closed stores", "kind": "bool" }
+  ]
+}

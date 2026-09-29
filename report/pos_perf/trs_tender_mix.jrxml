@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Franchise Treasury console: monthly tender mix as a 100% stacked bar. The
+     share is computed in SQL against a per-month total that carries the SAME
+     region filter as the outer query, so each bar sums to 100 whatever the
+     region selection is (same pattern as ops_promo_panel.jrxml; a stackedBar
+     ignores the gradient customizer, gotcha G7, so colours are explicit).
+
+     SERIES ORDER NOTE: the query ranks tender_group in the ORDER BY (Cash=1,
+     Card=2, Stored Value=3, else 4) so the dataset's series appear in that
+     fixed order regardless of alphabetical sort, and the seriesColor order
+     indexes follow: Cash gets #0550DC, Card gets #1DB6C0, Stored Value gets
+     #0A4CAD - matching the brief's named pairing (same ranking technique as
+     trs_ar_aging's aging_bucket CASE).
+
+     Month labels rotate -45 via categoryAxisTickLabelRotation (the attribute
+     exec_trend / pnl_contribution_trend use) so 24 months fit a 580px tile.
+     Chart is in the title band -> evaluationTime="Report". -->
+<jasperReport name="trs_tender_mix" language="java" pageWidth="600" pageHeight="420" columnWidth="580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_asof" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_franchisee" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT yyyymm, CAST(yyyymm AS VARCHAR(6)) AS ym, tender_group,
+       DECIMAL(100.0 * FLOAT8(SUM(amount)) / FLOAT8(NULLIF((SELECT SUM(amount) FROM dash_tender_monthly i WHERE i.yyyymm = o.yyyymm AND $X{IN, region, p_regions}), 0)), 6, 2) AS share_pct
+FROM dash_tender_monthly o WHERE yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions}
+GROUP BY yyyymm, tender_group ORDER BY yyyymm, CASE tender_group WHEN 'Cash' THEN 1 WHEN 'Card' THEN 2 ELSE 3 END
+	]]></query>
+
+	<field name="yyyymm" class="java.lang.Integer"/>
+	<field name="ym" class="java.lang.String"/>
+	<field name="tender_group" class="java.lang.String"/>
+	<field name="share_pct" class="java.math.BigDecimal"/>
+
+	<title height="400">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="580" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Tender Mix]]></text></element>
+		<element kind="textField" x="0" y="26" width="580" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA["Share of tendered value by month. Ledger as of 2020-12-31, invoices through " + $P{p_asof}.substring(0, 4) + "-" + $P{p_asof}.substring(4)]]></expression></element>
+
+		<element kind="chart" chartType="stackedBar" x="0" y="48" width="580" height="352" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA[$F{tender_group}]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{share_pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" categoryAxisTickLabelRotation="-45">
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#1DB6C0"/>
+				<seriesColor order="2" color="#0A4CAD"/>
+				<seriesColor order="3" color="#239CA8"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

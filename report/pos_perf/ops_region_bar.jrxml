@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Operations Console: Net Sales by Region, filtered by the shared
+     p_from/p_to/p_regions/p_promo/p_period controls. Plain solid brand-blue bar
+     (no chart customizer, since PROD lacks com.actian.jasper.GradientTrendCustomizer
+     on its classpath, so bar color is set via explicit seriesColor order=0 instead)
+     plus direct value labels, same pattern as exec_region_bar.jrxml. JR7-native. -->
+<jasperReport name="ops_region_bar" language="java" pageWidth="950" pageHeight="422" columnWidth="910" leftMargin="20" rightMargin="20" topMargin="20" bottomMargin="20">
+	<parameter name="p_from" class="java.util.Date">
+		<defaultValueExpression><![CDATA[new java.text.SimpleDateFormat("yyyy-MM-dd").parse("2019-01-01")]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_to" class="java.util.Date">
+		<defaultValueExpression><![CDATA[new java.text.SimpleDateFormat("yyyy-MM-dd").parse("2020-12-31")]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_promo" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_period" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT storeregion, SUM(sales_ext) AS v
+FROM dash_monthly
+WHERE (yr*100+mo) BETWEEN YEAR($P{p_from})*100+MONTH($P{p_from}) AND YEAR($P{p_to})*100+MONTH($P{p_to})
+  AND $X{IN, storeregion, p_regions}
+  AND ($P{p_promo} = 'All' OR ($P{p_promo} = 'NONE' AND promotiontype = '') OR promotiontype = $P{p_promo})
+  AND ($P{p_period} = 'All' OR pandemic_period = $P{p_period})
+GROUP BY 1 ORDER BY 2 DESC
+	]]></query>
+
+	<field name="storeregion" class="java.lang.String"/>
+	<field name="v" class="java.math.BigDecimal"/>
+
+	<title height="52">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="910" height="24" fontSize="17.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Net Sales by Region]]></text></element>
+		<element kind="staticText" x="0" y="26" width="910" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Regional performance for the selected date range, promotion, and period]]></text></element>
+	</title>
+
+	<summary height="330">
+		<element kind="chart" chartType="bar" x="0" y="0" width="910" height="330" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Net Sales"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{storeregion}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{v}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" showLabels="true">
+				<seriesColor order="0" color="#0550DC"/>
+			</plot>
+		</element>
+	</summary>
+
+</jasperReport>

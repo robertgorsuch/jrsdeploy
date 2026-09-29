@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Executive Overview: 5-up KPI strip (Net Sales / Transactions / Quantity /
+     Avg Basket / Stores). Pattern mirrors foodmart/kpi_strip.jrxml (divider
+     lines, evaluationTime="Report"). JR7-native.
+
+     NAVY THEME: the <background> band paints the whole page Software Blue
+     (#000032). JR rejects a background element that reaches outside the band
+     ("Element bottom reaches outside band area") AND a background band taller
+     than pageHeight - margins ("The background section and the margins do not
+     fit the page height"), so a full-bleed ground is only reachable with zero
+     margins and columnWidth = pageWidth (the shape story_hero.jrxml already
+     uses). Margins are folded into the element coordinates instead - every
+     element is shifted by the old leftMargin/topMargin and the first band grows
+     by the old topMargin - so the absolute layout on the page is unchanged.
+     Values are white, captions #8AC6F8, dividers the tile-border navy #26305A. -->
+<jasperReport name="exec_kpi_strip" language="java" pageWidth="1600" pageHeight="130" columnWidth="1600" leftMargin="0" rightMargin="0" topMargin="0" bottomMargin="0">
+	<query language="SQL"><![CDATA[SELECT sales_ext, tx, qty, sales_ext/NULLIF(tx,0) AS basket, 330 AS stores FROM dash_kpi]]></query>
+
+	<field name="sales_ext" class="java.math.BigDecimal"/>
+	<field name="tx" class="java.lang.Long"/>
+	<field name="qty" class="java.lang.Long"/>
+	<field name="basket" class="java.math.BigDecimal"/>
+	<field name="stores" class="java.lang.Integer"/>
+
+	<background height="130">
+		<element kind="rectangle" x="0" y="0" width="1600" height="130" mode="Opaque" backcolor="#000032" forecolor="#000032"/>
+	</background>
+
+	<title height="120">
+		<element kind="staticText" x="10" y="24" width="316" height="26" fontSize="13.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Net Sales]]></text></element>
+		<element kind="textField" x="10" y="54" width="316" height="50" fontSize="26.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0" evaluationTime="Report"><expression><![CDATA[$F{sales_ext}]]></expression></element>
+
+		<element kind="line" x="326" y="30" width="1" height="70" forecolor="#26305A"/>
+		<element kind="staticText" x="326" y="24" width="316" height="26" fontSize="13.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Transactions]]></text></element>
+		<element kind="textField" x="326" y="54" width="316" height="50" fontSize="26.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0" evaluationTime="Report"><expression><![CDATA[$F{tx}]]></expression></element>
+
+		<element kind="line" x="642" y="30" width="1" height="70" forecolor="#26305A"/>
+		<element kind="staticText" x="642" y="24" width="316" height="26" fontSize="13.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Quantity Sold]]></text></element>
+		<element kind="textField" x="642" y="54" width="316" height="50" fontSize="26.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0" evaluationTime="Report"><expression><![CDATA[$F{qty}]]></expression></element>
+
+		<element kind="line" x="958" y="30" width="1" height="70" forecolor="#26305A"/>
+		<element kind="staticText" x="958" y="24" width="316" height="26" fontSize="13.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Avg Basket]]></text></element>
+		<element kind="textField" x="958" y="54" width="316" height="50" fontSize="26.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0.00" evaluationTime="Report"><expression><![CDATA[$F{basket}]]></expression></element>
+
+		<element kind="line" x="1274" y="30" width="1" height="70" forecolor="#26305A"/>
+		<element kind="staticText" x="1274" y="24" width="316" height="26" fontSize="13.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Stores]]></text></element>
+		<element kind="textField" x="1274" y="54" width="316" height="50" fontSize="26.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0" evaluationTime="Report"><expression><![CDATA[$F{stores}]]></expression></element>
+	</title>
+
+</jasperReport>

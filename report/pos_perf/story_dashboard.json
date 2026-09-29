@@ -1,0 +1,29 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_promo_story",
+  "label": "POS Promo and Margin Story",
+  "autoRefresh": true,
+  "showExportButton": true,
+  "showPrintButton": true,
+  "canvasColor": "#000032",
+  "dashlets": [
+    {
+      "resource": "/reports/pos_perf/story_hero",
+      "label": "Promo and Margin Story",
+      "showTitleBar": false,
+      "x": 0, "y": 0, "width": 40, "height": 6
+    },
+    {
+      "resource": "/reports/pos_perf/story_trend",
+      "label": "Monthly Net Sales Trend",
+      "showTitleBar": false,
+      "x": 0, "y": 6, "width": 40, "height": 12
+    },
+    {
+      "resource": "/reports/pos_perf/story_cards",
+      "label": "Promo and Margin Story - Highlights",
+      "showTitleBar": false,
+      "x": 0, "y": 18, "width": 40, "height": 8
+    }
+  ]
+}

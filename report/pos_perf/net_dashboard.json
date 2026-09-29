@@ -1,0 +1,12 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_store_network",
+  "label": "POS Store Network",
+  "dashlets": [
+    { "resource": "/reports/pos_perf/net_map",            "label": "Store Network",             "scaleToFit": "container", "showTitleBar": false, "x": 0,  "y": 0,  "width": 22, "height": 17 },
+    { "resource": "/reports/pos_perf/net_sqft_format",     "label": "Sales per Sq Ft by Format",  "scaleToFit": "container", "showTitleBar": false, "x": 22, "y": 0,  "width": 18, "height": 9 },
+    { "resource": "/reports/pos_perf/net_income_scatter",  "label": "Income vs Store Sales",      "scaleToFit": "container", "showTitleBar": false, "x": 22, "y": 9,  "width": 18, "height": 8 },
+    { "resource": "/reports/pos_perf/net_lease",           "label": "Lease Expiries",             "scaleToFit": "container", "showTitleBar": false, "x": 0,  "y": 17, "width": 20, "height": 9 },
+    { "resource": "/reports/pos_perf/net_exposed",         "label": "Stores Needing a Decision",  "scaleToFit": "container", "showTitleBar": false, "x": 20, "y": 17, "width": 20, "height": 9 }
+  ]
+}

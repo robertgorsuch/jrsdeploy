@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Supply and Inventory console: gross margin return on inventory investment,
+     averaged per category and ranked. Twelve categories in a 980px tile, so the
+     plot is horizontal (plot orientation="Horizontal") and the category names
+     sit on the vertical axis. Rows arrive best first from the query and render
+     top down in that order, so the tile reads as "what the shelf space is
+     earning back", strongest to weakest. Single series, legend off. Chart is in
+     the title band, so evaluationTime="Report".
+
+     UNCATEGORIZED ITEMS ARE KEPT, NOT DROPPED, for the same reason as
+     sup_stock_status: about seventy percent of the tracked items carry no
+     category of their own, a null category key is rejected outright by the
+     underlying category dataset, and dropping that many items would misstate
+     the network. The key is coalesced to "Uncategorized". The bar is an
+     AVERAGE, not a total, so the size of that group does not distort the tile.
+
+     The value expression zero guards its input even though the ranking puts the
+     strongest category first: the metric is null on some items, and the console
+     rule is that a null first row value fails to register the series and takes
+     its seriesColor with it.
+
+     The filter contract, the parameter naming, and the reason store numbers are
+     compared as text are documented at length in sup_kpi.jrxml. -->
+<jasperReport name="sup_gmroi" language="java" pageWidth="1000" pageHeight="380" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="sup_store" class="java.util.Collection"/>
+	<parameter name="sup_category" class="java.util.Collection"/>
+	<parameter name="sup_supplier" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT COALESCE(category, 'Uncategorized') AS category,
+       DECIMAL(AVG(gmroi), 8, 2) AS gmroi
+FROM inventory
+WHERE ($X{IN, storeregion, p_regions})
+  AND ($X{IN, VARCHAR(storenumber), sup_store})
+  AND ($X{IN, category, sup_category})
+  AND ($X{IN, supplier_name, sup_supplier})
+GROUP BY COALESCE(category, 'Uncategorized')
+ORDER BY 2 DESC
+	]]></query>
+
+	<field name="category" class="java.lang.String"/>
+	<field name="gmroi" class="java.math.BigDecimal"/>
+
+	<title height="360">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="980" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[GMROI by Category]]></text></element>
+		<element kind="staticText" x="0" y="26" width="980" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Gross margin return on inventory investment]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="980" height="312" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["GMROI"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{category}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{gmroi} == null ? java.math.BigDecimal.ZERO : $F{gmroi}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true">
+				<seriesColor order="0" color="#0A4CAD"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

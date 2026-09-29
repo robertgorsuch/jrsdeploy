@@ -26,8 +26,23 @@
     [W] jrxml  : resourceBundle="..." present (reminder: the .properties bundle must be
                  embedded via deploy_report.ps1 -ResourceFiles even with whenResourceMissingType)
 
+  Manifest mode (a .json path, or -Manifest): lints a dashboard build manifest
+  (references\manifest.schema.json) instead of a jrxml. Unknown keys are tolerated.
+    [E] manifest-invalid-json     : file is not parseable JSON / not an object
+    [E] manifest-missing-key      : a required key (folder, name, dashlets) is absent
+    [W] manifest-filter-floating  : "filters" set but "filterFloating" omitted -- the
+                 gen_dashboard default flipped to floating:false (commit a8503f2), so
+                 STAGE and PROD composed at different times DIVERGE; pin it explicitly
+    [E] manifest-dashlet-outside-folder : a report dashlet's resource/report URI is not
+                 under the manifest "folder" (promote.ps1 moves the folder, not the tile)
+    [E] manifest-duplicate-dashlet : two dashlets share a name (or label -> component id)
+
 .PARAMETER Path
   One or more .jrxml/.jrtx/.jrdax files, or directories (scanned recursively).
+  A .json file is linted as a dashboard manifest.
+
+.PARAMETER Manifest
+  One or more dashboard manifest .json files to lint (same as passing them via -Path).
 
 .PARAMETER WarningsAsErrors
   Treat WARN findings as failures for the exit code.
@@ -36,14 +51,18 @@
   & lint_jrxml.ps1 -Path report\foodmart\foodmart_yoy_sales.jrxml
 .EXAMPLE
   & lint_jrxml.ps1 -Path report\ -WarningsAsErrors   # lint a whole tree
+.EXAMPLE
+  & lint_jrxml.ps1 -Manifest report\foodmart\dashboard.json -WarningsAsErrors
 .NOTES
   Exit code 0 = clean; 1 = at least one ERROR (or WARN with -WarningsAsErrors).
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory, Position = 0)][string[]]$Path,
+    [Parameter(Position = 0)][string[]]$Path,
+    [string[]]$Manifest,
     [switch]$WarningsAsErrors
 )
+if (-not $Path -and -not $Manifest) { throw "lint_jrxml.ps1: supply -Path and/or -Manifest" }
 
 $ErrorActionPreference = 'Stop'
 
@@ -173,25 +192,114 @@ function Lint-File($file) {
     return $findings
 }
 
+# ---- manifest lint (dashboard build manifest .json) ---------------------------------------------
+# Line numbers are best-effort: the line of the first occurrence of the offending
+# key/value in the raw text (0 when it cannot be located).
+function Find-JsonLine($lines, [string]$needle) {
+    $esc = [regex]::Escape($needle)
+    $hits = Find-Lines $lines $esc
+    if ($hits) { return $hits[0] }
+    return 0
+}
+
+function Lint-Manifest($file) {
+    $findings = @()
+    $raw   = Get-Content -Raw -LiteralPath $file
+    $lines = $raw -split "`r?`n"
+    try { $m = $raw | ConvertFrom-Json } catch {
+        return @(New-Finding 'ERROR' 1 'manifest-invalid-json' "not valid JSON: $($_.Exception.Message)")
+    }
+    if (-not ($m -is [System.Management.Automation.PSCustomObject])) {
+        return @(New-Finding 'ERROR' 1 'manifest-invalid-json' 'top level must be a JSON object')
+    }
+    $keys = @($m.PSObject.Properties.Name)
+
+    foreach ($k in @('folder', 'name', 'dashlets')) {
+        if ($keys -notcontains $k) {
+            $findings += New-Finding 'ERROR' 1 'manifest-missing-key' "required key `"$k`" is missing (see references/manifest.schema.json)."
+        }
+    }
+
+    # filters present but filterFloating not pinned -> docked/floating depends on
+    # which gen_dashboard.py revision composed it (default changed in a8503f2).
+    $hasFilters = ($keys -contains 'filters') -and $null -ne $m.filters -and @($m.filters).Count -gt 0
+    if ($hasFilters -and ($keys -notcontains 'filterFloating')) {
+        # tolerate an object-form filters:{floating:..} if a future schema adds it
+        $objFloating = ($m.filters -is [System.Management.Automation.PSCustomObject]) -and ($m.filters.PSObject.Properties.Name -contains 'floating')
+        if (-not $objFloating) {
+            $findings += New-Finding 'WARN' (Find-JsonLine $lines '"filters"') 'manifest-filter-floating' `
+                '"filters" is set but "filterFloating" is omitted: gen_dashboard.py now defaults to floating:false (docked, commit a8503f2) where older builds floated it, so STAGE and PROD diverge. Add "filterFloating": false (or true) explicitly.'
+        }
+    }
+
+    $folder = if ($keys -contains 'folder') { [string]$m.folder } else { $null }
+    $seen = @{}
+    if ($keys -contains 'dashlets' -and $m.dashlets) {
+        foreach ($d in @($m.dashlets)) {
+            if (-not ($d -is [System.Management.Automation.PSCustomObject])) { continue }
+            $dk = @($d.PSObject.Properties.Name)
+            $kind = if ($dk -contains 'kind' -and $d.kind) { [string]$d.kind } else { 'report' }
+            $dname = if ($dk -contains 'name' -and $d.name) { [string]$d.name } elseif ($dk -contains 'label' -and $d.label) { [string]$d.label } else { $null }
+
+            # duplicate dashlet names (name, else label -> component id collision)
+            if ($dname) {
+                $key = $dname.ToLowerInvariant()
+                if ($seen.ContainsKey($key)) {
+                    $findings += New-Finding 'ERROR' (Find-JsonLine $lines $dname) 'manifest-duplicate-dashlet' `
+                        "dashlet name `"$dname`" appears more than once; component ids derive from it and collide."
+                } else { $seen[$key] = $true }
+            }
+
+            # report dashlet resource/report URI must live under the manifest folder
+            if ($kind -eq 'report' -and $folder) {
+                $uri = $null
+                foreach ($uk in @('resource', 'report', 'uri')) {
+                    if ($dk -contains $uk -and $d.$uk) { $uri = [string]$d.$uk; break }
+                }
+                if ($uri) {
+                    $f1 = $folder.TrimEnd('/') + '/'
+                    if (-not $uri.StartsWith($f1, [StringComparison]::OrdinalIgnoreCase)) {
+                        $findings += New-Finding 'ERROR' (Find-JsonLine $lines $uri) 'manifest-dashlet-outside-folder' `
+                            "report dashlet `"$dname`" points at $uri which is not under folder $folder; promote.ps1/teardown move the folder only, so the tile breaks on the target."
+                    }
+                }
+            }
+        }
+    }
+    return $findings
+}
+
 # ---- gather files -----------------------------------------------------------------------------
 $exts = @('.jrxml', '.jrtx', '.jrdax')
 $files = @()
-foreach ($p in $Path) {
+$manifests = @()
+foreach ($p in @($Path)) {
+    if (-not $p) { continue }
     if (Test-Path $p -PathType Container) {
         $files += Get-ChildItem -Path $p -Recurse -File | Where-Object { $exts -contains $_.Extension.ToLowerInvariant() } | ForEach-Object FullName
     } elseif (Test-Path $p -PathType Leaf) {
-        $files += (Resolve-Path $p).Path
+        if ([IO.Path]::GetExtension($p).ToLowerInvariant() -eq '.json') { $manifests += (Resolve-Path $p).Path }
+        else { $files += (Resolve-Path $p).Path }
     } else {
         Write-Warning "Not found: $p"
     }
 }
-$files = $files | Sort-Object -Unique
-if (-not $files) { Write-Host "No .jrxml/.jrtx/.jrdax files to lint."; exit 0 }
+foreach ($p in @($Manifest)) {
+    if (-not $p) { continue }
+    if (Test-Path $p -PathType Leaf) { $manifests += (Resolve-Path $p).Path } else { Write-Warning "Not found: $p" }
+}
+$files = @($files | Sort-Object -Unique)
+$manifests = @($manifests | Sort-Object -Unique)
+if (-not $files -and -not $manifests) { Write-Host "No .jrxml/.jrtx/.jrdax/manifest files to lint."; exit 0 }
 
 # ---- run + report -----------------------------------------------------------------------------
 $totalErr = 0; $totalWarn = 0
-foreach ($f in $files) {
-    $findings = Lint-File $f
+$all = @()
+foreach ($f in $files)     { $all += [pscustomobject]@{ File = $f; Kind = 'artifact' } }
+foreach ($f in $manifests) { $all += [pscustomobject]@{ File = $f; Kind = 'manifest' } }
+foreach ($item in $all) {
+    $f = $item.File
+    $findings = if ($item.Kind -eq 'manifest') { Lint-Manifest $f } else { Lint-File $f }
     if (-not $findings) {
         Write-Host ("OK    " + $f) -ForegroundColor Green
         continue
@@ -204,7 +312,7 @@ foreach ($f in $files) {
     }
 }
 Write-Host ""
-Write-Host ("Summary: {0} file(s), {1} error(s), {2} warning(s)." -f $files.Count, $totalErr, $totalWarn)
+Write-Host ("Summary: {0} file(s), {1} error(s), {2} warning(s)." -f $all.Count, $totalErr, $totalWarn)
 
 $fail = ($totalErr -gt 0) -or ($WarningsAsErrors -and $totalWarn -gt 0)
 exit ([int]$fail)

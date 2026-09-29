@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Operations Console: Store Leaderboard (top 10 by net sales). dash_store is
+     aggregated at (storenumber, storename, storeregion, storeprovince) grain
+     ONLY - it carries no month or promotiontype columns at all (see
+     scripts/pos_perf/build_dash_aggregates.sql). So unlike the other five
+     Operations Console reports, this one can apply ONLY the region filter
+     ($X{IN, storeregion, p_regions}); the date range, promotion, and period
+     controls are declared as report parameters (for shared-control wiring
+     consistency with the other five dashlets) but are NOT referenced in this
+     report's query - there is no column here for them to filter on. This is
+     called out in the visible subtitle so a viewer never mistakes the
+     leaderboard for a promo/period-aware view. Ranked-table pattern mirrors
+     exec_top_stores.jrxml ($V{REPORT_COUNT} rank column). JR7-native. -->
+<jasperReport name="ops_leaderboard" language="java" pageWidth="1600" pageHeight="260" columnWidth="1580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_from" class="java.util.Date">
+		<defaultValueExpression><![CDATA[new java.text.SimpleDateFormat("yyyy-MM-dd").parse("2019-01-01")]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_to" class="java.util.Date">
+		<defaultValueExpression><![CDATA[new java.text.SimpleDateFormat("yyyy-MM-dd").parse("2020-12-31")]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_promo" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_period" class="java.lang.String">
+		<defaultValueExpression><![CDATA["All"]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT storename, storeregion, sales_ext
+FROM dash_store
+WHERE $X{IN, storeregion, p_regions}
+ORDER BY sales_ext DESC
+FETCH FIRST 10 ROWS ONLY
+	]]></query>
+
+	<field name="storename" class="java.lang.String"/>
+	<field name="storeregion" class="java.lang.String"/>
+	<field name="sales_ext" class="java.math.BigDecimal"/>
+
+	<title height="40">
+		<element kind="image" x="0" y="0" width="34" height="34" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="1580" height="22" fontSize="15.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Store Leaderboard -- Top 10 by Net Sales]]></text></element>
+		<element kind="staticText" x="0" y="23" width="1580" height="14" fontSize="8.5" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Reflects the region filter only -- store totals are not segmented by date range, promotion, or period]]></text></element>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="1580" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="6" y="0" width="34" height="20" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[#]]></text></element>
+		<element kind="staticText" x="46" y="0" width="694" height="20" fontSize="10.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Store]]></text></element>
+		<element kind="staticText" x="746" y="0" width="294" height="20" fontSize="10.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Region]]></text></element>
+		<element kind="staticText" x="1046" y="0" width="534" height="20" fontSize="10.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Net Sales]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="18">
+		<element kind="textField" x="6" y="0" width="34" height="17" fontSize="10.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA[$V{REPORT_COUNT}]]></expression></element>
+		<element kind="textField" x="46" y="0" width="694" height="17" fontSize="10.0" vTextAlign="Middle"><expression><![CDATA[$F{storename}]]></expression></element>
+		<element kind="textField" x="746" y="0" width="294" height="17" fontSize="10.0" vTextAlign="Middle"><expression><![CDATA[$F{storeregion}]]></expression></element>
+		<element kind="textField" x="1046" y="0" width="534" height="17" fontSize="10.0" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0"><expression><![CDATA[$F{sales_ext}]]></expression></element>
+			<element kind="line" x="0" y="17" width="1580" height="1" forecolor="#D6E0EF"/>
+		</band>
+	</detail>
+
+</jasperReport>

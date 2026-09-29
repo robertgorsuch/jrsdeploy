@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Executive Overview: live "last refreshed" + version tile. Pattern mirrors
+     foodmart/last_updated.jrxml (now() evaluated per-run -> dynamic). JR7-native.
+
+     NAVY THEME: full-bleed #000032 background band; margins folded into the
+     element coordinates so the layout on the page is unchanged (see the note in
+     exec_kpi_strip.jrxml for why zero margins are required). -->
+<jasperReport name="exec_last_updated" language="java" pageWidth="600" pageHeight="96" columnWidth="600" leftMargin="0" rightMargin="0" topMargin="0" bottomMargin="0">
+	<query language="SQL"><![CDATA[SELECT CURRENT_TIMESTAMP AS ts]]></query>
+
+	<field name="ts" class="java.sql.Timestamp"/>
+
+	<background height="96">
+		<element kind="rectangle" x="0" y="0" width="600" height="96" mode="Opaque" backcolor="#000032" forecolor="#000032"/>
+	</background>
+
+	<title height="90">
+		<element kind="textField" x="6" y="6" width="588" height="84" fontSize="13.0" bold="true" forecolor="#8AC6F8" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report"><expression><![CDATA["Last refreshed: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format($F{ts}) + "       ·       Version 1.0"]]></expression></element>
+	</title>
+
+</jasperReport>

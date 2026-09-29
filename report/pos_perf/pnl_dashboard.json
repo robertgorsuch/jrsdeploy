@@ -1,0 +1,40 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_store_pnl",
+  "label": "POS Store Profit and Budget",
+  "autoRefresh": true,
+  "showExportButton": true,
+  "showPrintButton": true,
+  "dashlets": [
+    {
+      "resource": "/reports/pos_perf/pnl_kpi_strip",
+      "label": "Key Metrics",
+      "scaleToFit": "container", "showTitleBar": false,
+      "x": 0, "y": 0, "width": 40, "height": 4
+    },
+    {
+      "resource": "/reports/pos_perf/pnl_waterfall",
+      "label": "Net Sales to EBITDA",
+      "scaleToFit": "container", "showTitleBar": false,
+      "x": 0, "y": 4, "width": 22, "height": 12
+    },
+    {
+      "resource": "/reports/pos_perf/pnl_variance_region",
+      "label": "Variance vs Budget",
+      "scaleToFit": "container", "showTitleBar": false,
+      "x": 22, "y": 4, "width": 18, "height": 12
+    },
+    {
+      "resource": "/reports/pos_perf/pnl_contribution_trend",
+      "label": "Contribution Margin Trend",
+      "scaleToFit": "container", "showTitleBar": false,
+      "x": 0, "y": 16, "width": 20, "height": 12
+    },
+    {
+      "resource": "/reports/pos_perf/pnl_worst_stores",
+      "label": "Lowest Four-Wall Margin",
+      "showTitleBar": false,
+      "x": 20, "y": 16, "width": 20, "height": 12
+    }
+  ]
+}

@@ -7,7 +7,7 @@ $script:Linter = "$PSScriptRoot/../scripts/lint_jrxml.ps1"
 
 function Invoke-Linter($file) {
     $out = & $script:Linter -Path $file *>&1
-    [pscustomobject]@{ Output = ($out | Out-String); Exit = $LASTEXITCODE }
+    [pscustomobject]@{ Output = ($out | Out-String -Width 4000); Exit = $LASTEXITCODE }
 }
 
 Describe "lint_jrxml.ps1" {
@@ -46,6 +46,60 @@ Describe "lint_jrxml.ps1" {
             $r.Exit   | Should Be 1
             $r.Output | Should Match 'areaplot-plot-props'
         } finally { Remove-Item $f -ErrorAction SilentlyContinue }
+    }
+
+    It "manifest: warns when filters set without filterFloating (manifest-filter-floating)" {
+        $f = Join-Path ([IO.Path]::GetTempPath())("lint_man_{0}.json" -f ([guid]::NewGuid().ToString('N')))
+        @'
+{ "folder": "/reports/pos", "name": "board", "label": "Board", "dataSourceUri": "/ds/x",
+  "filters": ["p_from", "p_to"],
+  "dashlets": [ {"name": "tile_a", "query": "SELECT 1"}, {"name": "tile_b", "query": "SELECT 2"} ] }
+'@ | Set-Content -LiteralPath $f -Encoding ASCII
+        try {
+            $r = Invoke-Linter $f
+            $r.Exit   | Should Be 0
+            $r.Output | Should Match 'manifest-filter-floating'
+            $r2 = & $script:Linter -Manifest $f -WarningsAsErrors *>&1
+            $LASTEXITCODE | Should Be 1
+        } finally { Remove-Item $f -ErrorAction SilentlyContinue }
+    }
+
+    It "manifest: flags a dashlet outside the folder and duplicate names (exit 1)" {
+        $f = Join-Path ([IO.Path]::GetTempPath())("lint_man2_{0}.json" -f ([guid]::NewGuid().ToString('N')))
+        @'
+{ "folder": "/reports/pos", "name": "board", "filterFloating": false, "filters": ["p_from"],
+  "controls": {"future": "key tolerated"},
+  "dashlets": [
+    {"name": "tile_a", "resource": "/reports/other/tile_a"},
+    {"name": "tile_a", "resource": "/reports/pos/tile_a"},
+    {"kind": "text", "name": "hdr", "text": "x"},
+    {"kind": "image", "name": "logo", "url": "repo:/images/actian_logo"} ] }
+'@ | Set-Content -LiteralPath $f -Encoding ASCII
+        try {
+            $r = Invoke-Linter $f
+            $r.Exit   | Should Be 1
+            $r.Output | Should Match 'manifest-dashlet-outside-folder'
+            $r.Output | Should Match 'manifest-duplicate-dashlet'
+            $r.Output | Should Not Match 'manifest-filter-floating'
+        } finally { Remove-Item $f -ErrorAction SilentlyContinue }
+    }
+
+    It "manifest: passes a clean manifest and flags invalid JSON / missing keys" {
+        $ok  = Join-Path ([IO.Path]::GetTempPath())("lint_man3_{0}.json" -f ([guid]::NewGuid().ToString('N')))
+        $bad = Join-Path ([IO.Path]::GetTempPath())("lint_man4_{0}.json" -f ([guid]::NewGuid().ToString('N')))
+        '{ "folder": "/reports/pos", "name": "b", "dashlets": [ {"name": "t1", "query": "SELECT 1"} ] }' | Set-Content -LiteralPath $ok -Encoding ASCII
+        '{ "name": "b", "dashlets": [ { "name": "t1" } ' | Set-Content -LiteralPath $bad -Encoding ASCII
+        try {
+            $r = Invoke-Linter $ok
+            $r.Exit | Should Be 0
+            $r = Invoke-Linter $bad
+            $r.Exit   | Should Be 1
+            $r.Output | Should Match 'manifest-invalid-json'
+            '{ "name": "b", "dashlets": [ { "name": "t1" } ] }' | Set-Content -LiteralPath $bad -Encoding ASCII
+            $r = Invoke-Linter $bad
+            $r.Exit   | Should Be 1
+            $r.Output | Should Match 'manifest-missing-key'
+        } finally { Remove-Item $ok, $bad -ErrorAction SilentlyContinue }
     }
 
     It "passes a clean minimal .jrxml (exit 0)" {

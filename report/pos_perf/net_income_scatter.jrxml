@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Store Network cockpit: trade-area median household income (x) vs store
+     lifetime sales (y), one point per store, no basemap - a straight JR7
+     xy scatter (dataset kind="xy"), single series, legend off per the brief.
+     Every store's postal_fsa resolves to a fsa_demographics row (330 of 330,
+     0 orphans on the join - verified 2026-08-25), so this is a plain INNER
+     JOIN with no NULLIF/COALESCE guarding needed.
+
+     Field types: storenumber Integer (established convention across this
+     suite, e.g. net_map.jrxml); total_sales is a persisted DECIMAL(14,2)
+     column on stores selected with no arithmetic, so BigDecimal; median_income
+     on fsa_demographics is itself unadorned integer arithmetic
+     (46000 + inc_h * 1000, no DECIMAL cast) in build_fsa_demographics.sql, so
+     it is declared java.lang.Long here rather than Integer - a JDBC getLong()
+     widens cleanly off either an INT4 or INT8 physical column, so Long is the
+     safe superset regardless of which one the CTAS actually produced, and
+     matches the convention this suite already uses for other unadorned
+     integer-arithmetic results (chn_kpi.jrxml's scored_customers).
+
+     DEVIATION from the task brief's literal chartType="xyScatter": the local
+     compile rejected it outright - InvalidFormatException naming
+     ChartTypeEnum's real values, which include SCATTER (name "scatter") but
+     no xyScatter/xyScatter-shaped constant at all (the only "xy"-prefixed
+     entries are XYAREA/XYBAR/XYLINE, none of which is a plain point scatter).
+     chartType="scatter" is JasperReports' actual keyword for the same
+     dataset kind="xy" point-per-row chart the brief describes. The brief's
+     capital-V xValueExpression/yValueExpression also turned out wrong for
+     the SAME reason net_map.jrxml's xyz series needed lower-case v:
+     JRDesignXySeries's real properties, per the UnrecognizedPropertyException
+     naming all six, are xvalueExpression/yvalueExpression/labelExpression/
+     autoSort/itemHyperlink/seriesExpression - lower-case v on BOTH the xy and
+     xyz series classes in this JR 7.0.6 build, not just xyz. Corrected here
+     to match.
+
+     RENDER GOTCHA, found on the first run-to-PDF: chartType="scatter" reuses
+     the SAME underlying plot class as the line chart family, so a bare plot
+     element with no line/shape flags rendered every one of the 330 points
+     connected by a jagged teal line in x-sort order (a "connect the dots"
+     mess, not a scatter read) - the JR7-native form's plot class is fixed by
+     chartType per jr7-valid-elements.md, and for scatter that class turned
+     out to be the JRLinePlot family, not a dedicated point-only plot. Added
+     showLines="false" showShapes="true" (the same two flags
+     jr7-valid-elements.md documents for a linePlot/JRLinePlot) to get
+     unconnected point markers only, matching the brief's "each point is one
+     store" intent.
+
+     Single series, chart in the title band -> evaluationTime="Report".
+     Cockpit archetype: no parameters. -->
+<jasperReport name="net_income_scatter" pageWidth="720" pageHeight="320" columnWidth="700" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT f.median_income, s.total_sales, s.storenumber
+FROM stores s
+JOIN fsa_demographics f ON f.fsa = s.postal_fsa
+	]]></query>
+
+	<field name="median_income" class="java.lang.Long"/>
+	<field name="total_sales" class="java.math.BigDecimal"/>
+	<field name="storenumber" class="java.lang.Integer"/>
+
+	<title height="300">
+		<element kind="image" x="0" y="0" width="36" height="36" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="700" height="20" fontSize="14.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Trade-Area Income vs Store Sales]]></text></element>
+		<element kind="staticText" x="0" y="22" width="700" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Each point is one store]]></text></element>
+
+		<element kind="chart" chartType="scatter" x="0" y="40" width="700" height="256" showLegend="false" evaluationTime="Report">
+			<dataset kind="xy">
+				<series>
+					<seriesExpression><![CDATA["Stores"]]></seriesExpression>
+					<xvalueExpression><![CDATA[$F{median_income}]]></xvalueExpression>
+					<yvalueExpression><![CDATA[$F{total_sales}]]></yvalueExpression>
+				</series>
+			</dataset>
+			<plot showLines="false" showShapes="true">
+				<seriesColor order="0" color="#1DB6C0"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

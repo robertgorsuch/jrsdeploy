@@ -1,0 +1,13 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_supply_inventory",
+  "label": "POS Supply and Inventory",
+  "filters": ["p_regions", "sup_store", "sup_category", "sup_supplier"],
+  "dashlets": [
+    { "resource": "/reports/pos_perf/sup_kpi",           "label": "Key Metrics",        "showTitleBar": false, "x": 0,  "y": 0,  "width": 40, "height": 4 },
+    { "resource": "/reports/pos_perf/sup_stock_status",  "label": "Stock Status",       "showTitleBar": false, "x": 0,  "y": 4,  "width": 20, "height": 10 },
+    { "resource": "/reports/pos_perf/sup_gmroi",         "label": "GMROI by Category",  "showTitleBar": false, "x": 20, "y": 4,  "width": 20, "height": 10 },
+    { "resource": "/reports/pos_perf/sup_scorecard",     "label": "Supplier Scorecard", "showTitleBar": false, "x": 0,  "y": 14, "width": 20, "height": 11 },
+    { "resource": "/reports/pos_perf/sup_shrink",        "label": "Shrink by Reason",   "showTitleBar": false, "x": 20, "y": 14, "width": 20, "height": 11 }
+  ]
+}

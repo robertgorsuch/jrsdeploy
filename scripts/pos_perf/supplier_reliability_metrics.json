@@ -1,0 +1,180 @@
+{
+  "model_version": "supplier-reliability-v1",
+  "run_date": "2026-08-26",
+  "orders": 92472,
+  "suppliers": 12,
+  "train_rows": 69648,
+  "holdout_rows": 22824,
+  "train_end": "2020-06-30",
+  "on_time_base_rate": 0.850019465351674,
+  "lead_time": {
+    "model": {
+      "n": 22824,
+      "mae": 1.2154021057583648,
+      "rmse": 1.422277533771205,
+      "wape": 0.2112728590172879,
+      "r2": 0.5815724306425938,
+      "bias": -0.00860614132425273
+    },
+    "baseline_po_expectation": {
+      "n": 22824,
+      "mae": 1.2050035050823695,
+      "rmse": 1.4191464039866093,
+      "wape": 0.20946527444573917,
+      "r2": 0.583412730938195,
+      "bias": -0.0027602523659305996
+    },
+    "baseline_train_mean": {
+      "n": 22824,
+      "mae": 1.7968638088287976,
+      "rmse": 2.198748151035368,
+      "wape": 0.31234811290628767,
+      "r2": -5.908734878490307e-06,
+      "bias": -0.005344676900734002
+    },
+    "beats_po_expectation": false
+  },
+  "on_time": {
+    "model": {
+      "n": 22824,
+      "positive_rate": 0.8459078163336838,
+      "auc_roc": 0.5002324281005595,
+      "auc_pr": 0.8465386359386831,
+      "brier": 0.1305207251611437,
+      "top_decile_lift": 1.005511072600761
+    },
+    "baseline_base_rate": {
+      "n": 22824,
+      "positive_rate": 0.8459078163336838,
+      "auc_roc": 0.5,
+      "auc_pr": 0.8459078163336838,
+      "brier": 0.130377583903541,
+      "top_decile_lift": 1.0039569596601108
+    }
+  },
+  "buffer_q90_residual_days": 1.9999889863948825,
+  "importance_lead": [
+    {
+      "feature": "supplier_name",
+      "mae_rise": 0.932046265466981
+    },
+    {
+      "feature": "expected_lead_days",
+      "mae_rise": 0.01058604432108412
+    },
+    {
+      "feature": "ordered_units",
+      "mae_rise": 0.006079285761200426
+    },
+    {
+      "feature": "po_value_cost",
+      "mae_rise": 0.0038781769379065967
+    },
+    {
+      "feature": "line_count",
+      "mae_rise": 0.0022508116488322294
+    },
+    {
+      "feature": "store_format",
+      "mae_rise": 0.00036076567892262545
+    },
+    {
+      "feature": "order_dow",
+      "mae_rise": 0.0003312697930994979
+    },
+    {
+      "feature": "province",
+      "mae_rise": 0.0001734420135455217
+    },
+    {
+      "feature": "payment_terms",
+      "mae_rise": 6.823995693028273e-05
+    },
+    {
+      "feature": "staff_count",
+      "mae_rise": 5.9964501059051045e-05
+    },
+    {
+      "feature": "order_month",
+      "mae_rise": 3.165160837448333e-05
+    },
+    {
+      "feature": "order_year",
+      "mae_rise": 0.0
+    },
+    {
+      "feature": "supplier_nominal_lead",
+      "mae_rise": 0.0
+    },
+    {
+      "feature": "po_status",
+      "mae_rise": 0.0
+    },
+    {
+      "feature": "category_focus",
+      "mae_rise": -1.624981225356592e-06
+    }
+  ],
+  "importance_on_time": [
+    {
+      "feature": "po_value_cost",
+      "mae_rise": 0.00020032625918958713
+    },
+    {
+      "feature": "supplier_name",
+      "mae_rise": 0.0001766196748774762
+    },
+    {
+      "feature": "province",
+      "mae_rise": 0.00013182666608924087
+    },
+    {
+      "feature": "square_feet",
+      "mae_rise": 0.00012124563954668544
+    },
+    {
+      "feature": "category_focus",
+      "mae_rise": 2.8768126089817603e-05
+    },
+    {
+      "feature": "region",
+      "mae_rise": 8.46823831579524e-06
+    },
+    {
+      "feature": "store_format",
+      "mae_rise": 3.434821077008543e-06
+    },
+    {
+      "feature": "expected_lead_days",
+      "mae_rise": 0.0
+    },
+    {
+      "feature": "order_year",
+      "mae_rise": 0.0
+    },
+    {
+      "feature": "supplier_nominal_lead",
+      "mae_rise": 0.0
+    },
+    {
+      "feature": "po_status",
+      "mae_rise": 0.0
+    },
+    {
+      "feature": "payment_terms",
+      "mae_rise": 0.0
+    },
+    {
+      "feature": "staff_count",
+      "mae_rise": -9.938478992943534e-06
+    },
+    {
+      "feature": "line_count",
+      "mae_rise": -6.160467347937626e-05
+    },
+    {
+      "feature": "order_dow",
+      "mae_rise": -6.78829568911965e-05
+    }
+  ]
+}

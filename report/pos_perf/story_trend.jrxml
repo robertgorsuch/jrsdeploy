@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Option C (Promo & Margin Story): wide monthly Net Sales trend, Jan 2019 -
+     Dec 2020, with three point annotations (Dec 2019 / Mar 2020 / Dec 2020).
+
+     Per exec_trend.jrxml's precedent: no JFreeChart interval-marker customizer
+     class exists for shading the pandemic period on a line chart (only
+     GradientTrendCustomizer, which is bar-chart-specific per gotcha G7), and
+     building + deploying a new customizer jar means rebuilding
+     actian-chart-customizers.jar and restarting Tomcat on shared STAGE,
+     out of scope. This report ships the same safe fallback: a plain brand
+     line chart plus a labeled callout row with three annotation panels
+     (matching exec_kpi_strip's divider-line layout) instead of an in-plot
+     shaded region. All three callout values are computed by SQL scalar
+     subqueries (repeated per output row, picked up via evaluationTime="Report"
+     against the last row, same value on every row since the subqueries are
+     non-correlated) rather than hardcoded, so they self-verify against live
+     data. JR7-native.
+
+     NAVY THEME: full-bleed #000032 background band with the margins folded into
+     the element coordinates (see exec_kpi_strip.jrxml). Title white, captions
+     #8AC6F8, callout dividers #26305A, line Tech Blue #3C91FF, and the chart /
+     plot / axis / legend colours set explicitly because JFreeChart's defaults
+     are black-on-white (see exec_region_bar.jrxml). The Mar 2020 callout keeps
+     its red #D9534F - it is a status colour, not part of the light palette. -->
+<jasperReport name="story_trend" language="java" pageWidth="1600" pageHeight="420" columnWidth="1600" leftMargin="0" rightMargin="0" topMargin="0" bottomMargin="0">
+	<query language="SQL"><![CDATA[
+SELECT m.yr AS yr, m.mo AS mo, SUM(m.sales_ext) AS v,
+       (SELECT SUM(sales_ext) FROM dash_monthly WHERE yr = 2019 AND mo = 12) AS dec19,
+       (SELECT SUM(sales_ext) FROM dash_monthly WHERE yr = 2020 AND mo = 12) AS dec20,
+       (SELECT SUM(sales_ext) FROM dash_monthly WHERE yr = 2020 AND mo = 3) AS mar20,
+       (SELECT SUM(sales_ext) FROM dash_monthly WHERE yr = 2020 AND mo = 2) AS feb20
+FROM dash_monthly m
+GROUP BY m.yr, m.mo
+ORDER BY 1, 2
+	]]></query>
+
+	<field name="yr" class="java.lang.Integer"/>
+	<field name="mo" class="java.lang.Integer"/>
+	<field name="v" class="java.math.BigDecimal"/>
+	<field name="dec19" class="java.math.BigDecimal"/>
+	<field name="dec20" class="java.math.BigDecimal"/>
+	<field name="mar20" class="java.math.BigDecimal"/>
+	<field name="feb20" class="java.math.BigDecimal"/>
+
+	<background height="420">
+		<element kind="rectangle" x="0" y="0" width="1600" height="420" mode="Opaque" backcolor="#000032" forecolor="#000032"/>
+	</background>
+
+	<title height="70">
+		<element kind="image" x="10" y="14" width="36" height="36" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="10" y="14" width="1580" height="26" fontSize="16.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center"><text><![CDATA[Monthly Net Sales Trend]]></text></element>
+		<element kind="staticText" x="10" y="42" width="1580" height="16" fontSize="9.5" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Jan 2019 - Dec 2020 -- pandemic period: Mar 2020 onward (see callouts below)]]></text></element>
+	</title>
+
+	<summary height="340">
+		<element kind="chart" chartType="line" x="10" y="0" width="1580" height="230" mode="Opaque" backcolor="#000032" legendColor="#FFFFFF" legendBackgroundColor="#000032" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Net Sales"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{yr} + "-" + ($F{mo} < 10 ? "0" + $F{mo} : "" + $F{mo})]]></categoryExpression>
+					<valueExpression><![CDATA[$F{v}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showLines="true" showShapes="true" categoryAxisTickLabelRotation="-45" backcolor="#000032"
+			      categoryAxisLabelColor="#8AC6F8" categoryAxisTickLabelColor="#8AC6F8" categoryAxisLineColor="#26305A"
+			      valueAxisLabelColor="#8AC6F8" valueAxisTickLabelColor="#8AC6F8" valueAxisLineColor="#26305A">
+				<seriesColor order="0" color="#3C91FF"/>
+			</plot>
+		</element>
+
+		<element kind="line" x="536" y="245" width="1" height="70" forecolor="#26305A"/>
+		<element kind="line" x="1063" y="245" width="1" height="70" forecolor="#26305A"/>
+
+		<element kind="staticText" x="10" y="242" width="526" height="18" fontSize="11.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Dec 2019]]></text></element>
+		<element kind="textField" x="10" y="262" width="526" height="32" fontSize="19.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA["$" + new java.text.DecimalFormat("#,##0.0").format($F{dec19}.doubleValue() / 1000000.0) + "M"]]></expression>
+		</element>
+
+		<element kind="staticText" x="547" y="242" width="516" height="18" fontSize="11.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Mar 2020 (pandemic onset)]]></text></element>
+		<element kind="textField" x="547" y="262" width="516" height="32" fontSize="19.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA[new java.text.DecimalFormat("+#,##0;-#,##0").format(($F{mar20}.doubleValue() - $F{feb20}.doubleValue()) / $F{feb20}.doubleValue() * 100) + "% MoM"]]></expression>
+		</element>
+
+		<element kind="staticText" x="1074" y="242" width="516" height="18" fontSize="11.0" forecolor="#8AC6F8" hTextAlign="Center"><text><![CDATA[Dec 2020 (best month)]]></text></element>
+		<element kind="textField" x="1074" y="262" width="516" height="32" fontSize="19.0" bold="true" forecolor="#FFFFFF" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA["$" + new java.text.DecimalFormat("#,##0.0").format($F{dec20}.doubleValue() / 1000000.0) + "M"]]></expression>
+		</element>
+	</summary>
+
+</jasperReport>

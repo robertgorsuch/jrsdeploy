@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Store Network cockpit: sales per square foot by store format, read
+     straight off stores (no aggregate table needed - the spec's direct-read
+     list covers this one). Four categories, single series, legend off,
+     horizontal bars so the format names read left to right - same plot shape
+     as chn_bands.jrxml / lab_format.jrxml, which already confirmed on
+     rasterized output that a horizontal category plot puts the first row at
+     the top.
+
+     Single series, so the bar colour is a constant #0550DC (established
+     series-blue). The value is still zero guarded, per the console-wide rule
+     that a null on the first row fails to register the series and shifts
+     the seriesColor order bindings (not directly load-bearing with only one
+     series/one colour here, but kept for consistency with every other single
+     series tile in this suite).
+
+     JR7-native bar plot (showTickMarks/showTickLabels are the valid flags
+     per jr7-valid-elements.md 3c). Chart is in the title band, so
+     evaluationTime="Report". Cockpit archetype: no parameters.
+
+     Verified in the warehouse 2026-08-25: Urban Storefront 1195.88 (highest),
+     Standalone 1187.56, Strip Plaza 1172.12, Shopping Mall 1078.18 (lowest). -->
+<jasperReport name="net_sqft_format" pageWidth="720" pageHeight="360" columnWidth="700" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT store_format,
+       DECIMAL(AVG(FLOAT8(total_sales) / FLOAT8(NULLIF(square_feet, 0))), 8, 2) AS sales_per_sqft
+FROM stores
+GROUP BY store_format
+ORDER BY sales_per_sqft DESC
+	]]></query>
+
+	<field name="store_format" class="java.lang.String"/>
+	<field name="sales_per_sqft" class="java.math.BigDecimal"/>
+
+	<title height="340">
+		<element kind="image" x="0" y="0" width="40" height="40" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="700" height="22" fontSize="14.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Sales per Square Foot by Format]]></text></element>
+		<element kind="staticText" x="0" y="24" width="700" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Average sales per square foot, all stores, by format]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="44" width="700" height="290" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Sales per sq ft"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{store_format} == null ? "Unclassified" : $F{store_format}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{sales_per_sqft} == null ? java.math.BigDecimal.ZERO : $F{sales_per_sqft}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true">
+				<seriesColor order="0" color="#0550DC"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

@@ -1,0 +1,179 @@
+{
+  "model_version": "customer-clv-v1",
+  "run_date": "2026-08-26",
+  "horizon_months": 6,
+  "train_asof": 11,
+  "valid_asof": 17,
+  "train_rows": 1691971,
+  "valid_rows": 2003764,
+  "train_mean_target": 31.800010254312873,
+  "valid_mean_target": 27.247564134299246,
+  "objective": "squared_error (conditional mean)",
+  "excluded_aggregate_accounts": 74,
+  "max_distinct_stores": 20,
+  "model": {
+    "n": 2003764,
+    "mae": 16.16448399443589,
+    "rmse": 45.28954359869288,
+    "wape": 0.59225191035939,
+    "r2": 0.4967490289046751,
+    "bias": -0.8937937459567734
+  },
+  "baseline_margin_l6": {
+    "n": 2003764,
+    "mae": 24.3934003605215,
+    "rmse": 50.03991815836737,
+    "wape": 0.8937518802736433,
+    "r2": 0.3856414386160286,
+    "bias": 4.640089361821053
+  },
+  "portfolio_calibration_model": 0.9671972972867815,
+  "portfolio_calibration_baseline": 1.1702937311735735,
+  "top_decile_capture_model": 0.47045401158661887,
+  "top_decile_capture_baseline": 0.39084211681116954,
+  "beats_baseline_mae": true,
+  "deciles": [
+    {
+      "dec": 0,
+      "n": 200377,
+      "pred": 0.2380271457918378,
+      "actual": 1.5294461440185252,
+      "total_actual": 306465.83,
+      "share_of_total": 0.005613164964763408
+    },
+    {
+      "dec": 1,
+      "n": 200376,
+      "pred": 1.5659888797216195,
+      "actual": 2.5606939453826807,
+      "total_actual": 513101.61,
+      "share_of_total": 0.009397863313556678
+    },
+    {
+      "dec": 2,
+      "n": 200376,
+      "pred": 3.1396615927000853,
+      "actual": 3.7478247893959358,
+      "total_actual": 750974.14,
+      "share_of_total": 0.013754687535936162
+    },
+    {
+      "dec": 3,
+      "n": 200377,
+      "pred": 5.404437000933005,
+      "actual": 6.550865817933197,
+      "total_actual": 1312642.84,
+      "share_of_total": 0.02404209565789289
+    },
+    {
+      "dec": 4,
+      "n": 200376,
+      "pred": 8.347958205371924,
+      "actual": 10.100068620992534,
+      "total_actual": 2023811.35,
+      "share_of_total": 0.03706771148062587
+    },
+    {
+      "dec": 5,
+      "n": 200376,
+      "pred": 11.702225467843096,
+      "actual": 14.050831935960394,
+      "total_actual": 2815449.5,
+      "share_of_total": 0.05156719264089133
+    },
+    {
+      "dec": 6,
+      "n": 200377,
+      "pred": 17.905833906988878,
+      "actual": 22.75246111080613,
+      "total_actual": 4559069.9,
+      "share_of_total": 0.08350298444230281
+    },
+    {
+      "dec": 7,
+      "n": 200376,
+      "pred": 30.046110327618184,
+      "actual": 33.34521245059288,
+      "total_actual": 6681580.29,
+      "share_of_total": 0.12237844719289498
+    },
+    {
+      "dec": 8,
+      "n": 200376,
+      "pred": 43.83758637640377,
+      "actual": 49.651112159140816,
+      "total_actual": 9948891.25,
+      "share_of_total": 0.18222184118451715
+    },
+    {
+      "dec": 9,
+      "n": 200377,
+      "pred": 141.3495781241683,
+      "actual": 128.18687469120707,
+      "total_actual": 25685701.39,
+      "share_of_total": 0.47045401158661887
+    }
+  ],
+  "importance": [
+    {
+      "feature": "loyalty_tier",
+      "mae_rise": 20.797104283665636
+    },
+    {
+      "feature": "txns_life",
+      "mae_rise": 4.886133307542508
+    },
+    {
+      "feature": "purchase_days_life",
+      "mae_rise": 2.8412769215208478
+    },
+    {
+      "feature": "sales_life",
+      "mae_rise": 1.8155846317469972
+    },
+    {
+      "feature": "ipt_median_days",
+      "mae_rise": 1.3244705457369967
+    },
+    {
+      "feature": "categories_bought",
+      "mae_rise": 0.7918830503055716
+    },
+    {
+      "feature": "overdue_ratio",
+      "mae_rise": 0.7650841033184967
+    },
+    {
+      "feature": "txns_l6",
+      "mae_rise": 0.4779816225125195
+    },
+    {
+      "feature": "rfm_segment",
+      "mae_rise": 0.4107368858320193
+    },
+    {
+      "feature": "tenure_days",
+      "mae_rise": 0.3955201622054574
+    },
+    {
+      "feature": "purchase_days_l6",
+      "mae_rise": 0.21973377242686354
+    },
+    {
+      "feature": "discount_l6",
+      "mae_rise": 0.06433664917708981
+    },
+    {
+      "feature": "ecom_l6",
+      "mae_rise": 0.04678377280527357
+    },
+    {
+      "feature": "diet_profile",
+      "mae_rise": 0.01720310660699198
+    },
+    {
+      "feature": "months_observed",
+      "mae_rise": 0.007854064943607852
+    }
+  ]
+}

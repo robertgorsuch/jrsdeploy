@@ -172,6 +172,10 @@ such property exists on `JRAreaPlot` or `JRBaseAreaPlot`. Its content is the
 `JRCategoryPlot` axis-label expressions (`categoryAxisLabelExpression`,
 `valueAxisLabelExpression`, domain/range min/max value expressions,
 JRCategoryPlot.java:39-64) plus `JRChartPlot` common attrs and `<seriesColor>`.
+`JRCategoryPlot` also carries **`valueAxisTickLabelMask`** (a decimal-format
+mask string, e.g. `"$#,##0"`, applied to the value-axis tick labels) and
+`categoryAxisTickLabelRotation` -- valid on any plot in the JRCategoryPlot
+family (bar, line, area), same source class.
 
 CORRECTION to SKILL.md: SKILL.md's scaffolder note groups "area" with bar as
 using `showTickMarks/showTickLabels`. Per source, an `<areaPlot>` accepts NEITHER

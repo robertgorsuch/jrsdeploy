@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Franchisee Fee Statement: the paginated drill target behind the AR
+     Outstanding chip on the Franchise Treasury console. One franchisee's full
+     royalty/marketing fee invoice history, in statement order.
+
+     PARAMETERS - p_franchisee_id is a java.lang.String (the id as text,
+     matching the new p_franchisee_id single-select control's LOV value
+     column, "fv"), NOT the existing multi-select p_franchisee control used
+     by the Treasury console's filter strip - that one is type 7
+     (java.util.Collection) and cannot back a single-entity statement.
+     p_yyyymm stays String because the shared p_yyyymm control (reused as-is
+     from Phase 1, not duplicated here) feeds it a string value.
+
+     p_yyyymm SEMANTICS (documented design choice) - unlike
+     rpt_store_pnl_statement, which shows exactly one month, this report
+     shows the franchisee's running statement history UP TO AND INCLUDING the
+     chosen month: an "as-of" cutoff (f.yyyymm <= INT4($P{p_yyyymm})), the
+     same convention trs_ar_aging/rpt_ar_aging already use with p_asof. A
+     single-month view would hide exactly the aging/overdue pattern a fee
+     statement exists to show - a franchisee who has been Overdue for three
+     months needs those three months visible together, not filtered to the
+     latest one. This is why p_yyyymm is attached at all here: a first draft
+     that only filtered f.yyyymm = INT4($P{p_yyyymm}) would leave a declared,
+     attached parameter meaningless once the cutoff moved earlier than an
+     invoice's own month.
+
+     COLUMN HEADER COLOUR - the brief's shorthand ("Header #1F4E79 on white")
+     is read here as the established rpt_ar_aging/rpt_ap_aging convention it
+     names in the same breath: an opaque #1F4E79 header bar with white text,
+     not #1F4E79 text on a white bar. Confirmed by reading both files before
+     writing this one; this report's columnHeader matches them exactly.
+
+     store_pnl_monthly.net_sales - selected per invoice-month as
+     store_net_sales and surfaced as a summed, report-scoped total in the
+     summary disclosure line (rpt_net_sales), not as a twelfth table column.
+     This is the "tied to store_pnl" context line the interface spec calls
+     for: it names the basis the fee_pct_of_sales column in the source ledger
+     is computed against, and ties this report back to the same net-sales
+     figures the Store P&L Statement and cockpits use, without adding a
+     column the brief's fixed 11-column list doesn't ask for.
+
+     Status column: two overlapping textFields gated on printWhenExpression,
+     the established Phase 1/2/3 conditional-colour pattern (Store P&L
+     Statement's variance cells, Churn Action List's risk_band) - red bold
+     for Overdue, plain otherwise.
+
+     whenNoDataType="AllSectionsNoDetail" baked in from the start: an
+     out-of-coverage franchisee/cutoff combination (a franchisee with no
+     invoices at or before the chosen month) must still render the branded
+     page with its title/header/summary, not a blank sheet, and the subtitle
+     null-guards $F{owner_name} for exactly that case since evaluationTime
+     "Report" has no detail row to read it from when nothing printed.
+
+     JR7-native throughout: <query language="SQL">, <element kind="...">. -->
+<jasperReport name="rpt_franchisee_fee_statement" language="java" pageWidth="842" pageHeight="595" orientation="Landscape" columnWidth="782" leftMargin="30" rightMargin="30" topMargin="30" bottomMargin="30" whenNoDataType="AllSectionsNoDetail">
+
+	<style name="fee_cell" fontSize="8.0" forecolor="#1F4E79"/>
+
+	<parameter name="p_franchisee_id" class="java.lang.String">
+		<defaultValueExpression><![CDATA["0"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_yyyymm" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+
+	<query language="SQL"><![CDATA[
+SELECT f.invoice_number, f.yyyymm, f.month_start, f.invoice_date, f.due_date, f.paid_date,
+       DECIMAL(f.royalty_fee, 12, 2) AS royalty_fee,
+       DECIMAL(f.marketing_fee, 12, 2) AS marketing_fee,
+       DECIMAL(f.total_invoiced, 12, 2) AS total_invoiced,
+       DECIMAL(f.amount_paid, 12, 2) AS amount_paid,
+       DECIMAL(f.balance, 12, 2) AS balance,
+       f.status, f.days_paid_late, f.days_overdue, f.aging_bucket,
+       DECIMAL(f.fee_pct_of_sales, 8, 4) AS fee_pct_of_sales,
+       f.owner_name, f.storename, f.region,
+       (SELECT DECIMAL(SUM(p.net_sales), 14, 2) FROM store_pnl_monthly p WHERE p.storenumber = f.storenumber AND p.yyyymm = f.yyyymm) AS store_net_sales
+FROM franchise_fee_ledger f
+WHERE f.franchisee_id = INT4($P{p_franchisee_id})
+  AND f.yyyymm <= INT4($P{p_yyyymm})
+ORDER BY f.yyyymm, f.invoice_number
+	]]></query>
+
+	<field name="invoice_number" class="java.lang.String"/>
+	<field name="yyyymm" class="java.lang.Integer"/>
+	<field name="month_start" class="java.sql.Date"/>
+	<field name="invoice_date" class="java.sql.Date"/>
+	<field name="due_date" class="java.sql.Date"/>
+	<field name="paid_date" class="java.sql.Date"/>
+	<field name="royalty_fee" class="java.math.BigDecimal"/>
+	<field name="marketing_fee" class="java.math.BigDecimal"/>
+	<field name="total_invoiced" class="java.math.BigDecimal"/>
+	<field name="amount_paid" class="java.math.BigDecimal"/>
+	<field name="balance" class="java.math.BigDecimal"/>
+	<field name="status" class="java.lang.String"/>
+	<field name="days_paid_late" class="java.lang.Integer"/>
+	<field name="days_overdue" class="java.lang.Integer"/>
+	<field name="aging_bucket" class="java.lang.String"/>
+	<field name="fee_pct_of_sales" class="java.math.BigDecimal"/>
+	<field name="owner_name" class="java.lang.String"/>
+	<field name="storename" class="java.lang.String"/>
+	<field name="region" class="java.lang.String"/>
+	<field name="store_net_sales" class="java.math.BigDecimal"/>
+
+	<variable name="rpt_total_invoiced" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{total_invoiced} == null ? java.math.BigDecimal.ZERO : $F{total_invoiced}]]></expression>
+	</variable>
+	<variable name="rpt_total_paid" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{amount_paid} == null ? java.math.BigDecimal.ZERO : $F{amount_paid}]]></expression>
+	</variable>
+	<variable name="rpt_total_balance" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{balance} == null ? java.math.BigDecimal.ZERO : $F{balance}]]></expression>
+	</variable>
+	<variable name="rpt_net_sales" class="java.math.BigDecimal" calculation="Sum">
+		<expression><![CDATA[$F{store_net_sales} == null ? java.math.BigDecimal.ZERO : $F{store_net_sales}]]></expression>
+	</variable>
+
+	<title height="56">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="782" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Franchisee Fee Statement]]></text></element>
+		<element kind="textField" x="0" y="26" width="782" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" evaluationTime="Report">
+			<expression><![CDATA["Franchisee " + $P{p_franchisee_id} + " - " + ($F{owner_name} == null ? "(no invoices at or before this cutoff)" : $F{owner_name})
++ " - statement through "
++ new String[]{"","January","February","March","April","May","June","July","August","September","October","November","December"}[Integer.parseInt($P{p_yyyymm}.substring(4))]
++ " " + $P{p_yyyymm}.substring(0, 4) + " (CAD)"]]></expression>
+		</element>
+		<element kind="line" x="0" y="50" width="782" height="1" forecolor="#D6E0EF"/>
+	</title>
+
+	<columnHeader height="20">
+		<element kind="rectangle" x="0" y="0" width="782" height="20" mode="Opaque" backcolor="#1F4E79" forecolor="#1F4E79"/>
+		<element kind="staticText" x="4" y="0" width="42" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Month]]></text></element>
+		<element kind="staticText" x="48" y="0" width="120" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Store]]></text></element>
+		<element kind="staticText" x="170" y="0" width="64" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Invoice Date]]></text></element>
+		<element kind="staticText" x="236" y="0" width="64" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Due Date]]></text></element>
+		<element kind="staticText" x="302" y="0" width="72" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Royalty Fee]]></text></element>
+		<element kind="staticText" x="376" y="0" width="76" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Marketing Fee]]></text></element>
+		<element kind="staticText" x="454" y="0" width="76" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Total Invoiced]]></text></element>
+		<element kind="staticText" x="532" y="0" width="72" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Amount Paid]]></text></element>
+		<element kind="staticText" x="606" y="0" width="72" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Balance]]></text></element>
+		<element kind="staticText" x="680" y="0" width="42" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" vTextAlign="Middle"><text><![CDATA[Status]]></text></element>
+		<element kind="staticText" x="724" y="0" width="58" height="20" fontSize="8.0" bold="true" forecolor="#FFFFFF" hTextAlign="Right" vTextAlign="Middle"><text><![CDATA[Days Overdue]]></text></element>
+	</columnHeader>
+
+	<detail>
+		<band height="16">
+			<element kind="rectangle" x="0" y="0" width="782" height="16" mode="Opaque" backcolor="#D6E0EF" forecolor="#D6E0EF">
+				<printWhenExpression><![CDATA[$V{REPORT_COUNT}.intValue() % 2 == 0]]></printWhenExpression>
+			</element>
+			<element kind="textField" style="fee_cell" x="4" y="0" width="42" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{yyyymm} == null ? "" : ($F{yyyymm}.toString().substring(0, 4) + "-" + $F{yyyymm}.toString().substring(4))]]></expression>
+			</element>
+			<element kind="textField" style="fee_cell" x="48" y="0" width="120" height="16" vTextAlign="Middle">
+				<expression><![CDATA[$F{storename}]]></expression>
+			</element>
+			<element kind="textField" style="fee_cell" x="170" y="0" width="64" height="16" vTextAlign="Middle" pattern="yyyy-MM-dd">
+				<expression><![CDATA[$F{invoice_date}]]></expression>
+			</element>
+			<element kind="textField" style="fee_cell" x="236" y="0" width="64" height="16" vTextAlign="Middle" pattern="yyyy-MM-dd">
+				<expression><![CDATA[$F{due_date}]]></expression>
+			</element>
+			<element kind="textField" style="fee_cell" x="302" y="0" width="72" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{royalty_fee}]]></expression>
+			</element>
+			<element kind="textField" style="fee_cell" x="376" y="0" width="76" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{marketing_fee}]]></expression>
+			</element>
+			<element kind="textField" style="fee_cell" x="454" y="0" width="76" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{total_invoiced}]]></expression>
+			</element>
+			<element kind="textField" style="fee_cell" x="532" y="0" width="72" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{amount_paid}]]></expression>
+			</element>
+			<element kind="textField" style="fee_cell" x="606" y="0" width="72" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="$#,##0.00" blankWhenNull="true">
+				<expression><![CDATA[$F{balance}]]></expression>
+			</element>
+
+			<element kind="textField" x="680" y="0" width="42" height="16" fontSize="8.0" bold="true" forecolor="#D9534F" vTextAlign="Middle">
+				<expression><![CDATA[$F{status}]]></expression>
+				<printWhenExpression><![CDATA["Overdue".equals($F{status})]]></printWhenExpression>
+			</element>
+			<element kind="textField" x="680" y="0" width="42" height="16" fontSize="8.0" forecolor="#1F4E79" vTextAlign="Middle">
+				<expression><![CDATA[$F{status}]]></expression>
+				<printWhenExpression><![CDATA[!"Overdue".equals($F{status})]]></printWhenExpression>
+			</element>
+
+			<element kind="textField" style="fee_cell" x="724" y="0" width="58" height="16" hTextAlign="Right" vTextAlign="Middle" pattern="#,##0" blankWhenNull="true">
+				<expression><![CDATA[$F{days_overdue}]]></expression>
+			</element>
+		</band>
+	</detail>
+
+	<pageFooter height="18">
+		<element kind="line" x="0" y="0" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="textField" x="0" y="4" width="500" height="12" fontSize="8.0" forecolor="#5B7DA6">
+			<expression><![CDATA["Franchisee Fee Statement -- amounts in CAD"]]></expression>
+		</element>
+		<element kind="textField" x="600" y="4" width="130" height="12" fontSize="8.0" forecolor="#5B7DA6" hTextAlign="Right">
+			<expression><![CDATA["Page " + $V{PAGE_NUMBER} + " of"]]></expression>
+		</element>
+		<element kind="textField" x="732" y="4" width="50" height="12" fontSize="8.0" forecolor="#5B7DA6" evaluationTime="Report">
+			<expression><![CDATA[" " + $V{PAGE_NUMBER}]]></expression>
+		</element>
+	</pageFooter>
+
+	<summary height="112">
+		<element kind="line" x="0" y="4" width="782" height="1" forecolor="#D6E0EF"/>
+
+		<element kind="staticText" x="0" y="10" width="260" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Total Invoiced]]></text></element>
+		<element kind="staticText" x="261" y="10" width="260" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Total Paid]]></text></element>
+		<element kind="staticText" x="522" y="10" width="260" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Total Balance]]></text></element>
+
+		<element kind="textField" x="0" y="30" width="260" height="34" fontSize="24.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0.00">
+			<expression><![CDATA[$V{rpt_total_invoiced}]]></expression>
+		</element>
+		<element kind="textField" x="261" y="30" width="260" height="34" fontSize="24.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0.00">
+			<expression><![CDATA[$V{rpt_total_paid}]]></expression>
+		</element>
+		<element kind="textField" x="522" y="30" width="260" height="34" fontSize="24.0" bold="true" forecolor="#D9534F" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0.00">
+			<expression><![CDATA[$V{rpt_total_balance}]]></expression>
+		</element>
+
+		<element kind="line" x="0" y="72" width="782" height="1" forecolor="#D6E0EF"/>
+		<element kind="textField" x="0" y="80" width="782" height="28" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center">
+			<expression><![CDATA["Royalty and marketing fees as a percent of that store-month's net sales (totaling "
++ new java.text.DecimalFormat("$#,##0").format($V{rpt_net_sales}) + " across the months shown); statement as of "
++ $P{p_yyyymm}.substring(0, 4) + "-" + $P{p_yyyymm}.substring(4) + "."]]></expression>
+		</element>
+	</summary>
+
+</jasperReport>

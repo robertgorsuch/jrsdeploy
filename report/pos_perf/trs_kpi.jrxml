@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Franchise Treasury console: 5-up KPI chip strip. Layout pattern mirrors
+     pnl_kpi_strip.jrxml / ops_kpi_chips.jrxml (divider lines, 13pt label /
+     26pt value, centered, evaluationTime="Report" so the single result row is
+     available in the title band).
+
+     Filter contract shared by all seven tiles of this console:
+       p_asof       yyyymm string from the shared LOV control (default 202012)
+       p_regions    multi-select collection -> $X{IN, region, p_regions}
+       p_franchisee multi-select collection -> $X{IN, franchisee_id, p_franchisee}
+     Only the clauses whose columns exist on a given table are emitted: the
+     accounts-payable and tax/tender subqueries carry no franchisee column, and
+     the two liability balances are network-wide (they carry neither), so the
+     "as of" subquery for the liability chip is unfiltered by design.
+
+     Balances are struck at the ledger date 2020-12-31; p_asof is an invoice
+     month cutoff, not a balance date. The footer line under the chips says so
+     and is built from p_asof (yyyymm -> "yyyy-MM") rather than hard-coded.
+
+     A chip can legitimately resolve to null under a narrow filter (e.g. no
+     unpaid supplier invoices in a single region before mid-2020), so every
+     value field is blankWhenNull and every sub-line null-guards its input.
+
+     DEVIATION (documented 2026-08-25): the AR Outstanding chip carries a
+     hyperlink to /reports/pos_perf/rpt_franchisee_fee_statement, per spec.
+     But this chip is a network-wide aggregate - one AR total summed across
+     all 169 franchisees - with no per-franchisee row to drill FROM, unlike
+     pnl_worst_stores or sup_scorecard, where each printed row IS a single
+     entity the drill can hand off. There is no franchisee id this tile could
+     know to pass. The hyperlink therefore opens the statement report at its
+     OWN defaults - only a "_report" hyperlinkParameter naming the target,
+     no p_franchisee_id or p_yyyymm parameter - rather than fabricating a
+     franchisee id the chip has no way to determine. A future reader should
+     not read the missing per-franchisee scoping as a bug to "fix" - it is
+     the correct shape for a fixed-scope drill off a network aggregate.
+
+     SCHEMA CORRECTION: the task brief for this deviation specified a bare
+     <hyperlinkReference><expression>...</expression></hyperlinkReference>
+     child element. That tag does not exist on JR7 7.0.6's textField schema
+     (compile_jrxml.ps1 rejected it with an UnrecognizedPropertyException
+     listing the real property set). This suite's own established drill
+     convention - linkType="ReportExecution" linkTarget="Blank" on the
+     element itself, plus a <hyperlinkParameter name="_report"> child naming
+     the target report unit (see pnl_worst_stores.jrxml, trs_ar_aging.jrxml,
+     chn_actions.jrxml et al.) - both compiles and is the correct JRS-native
+     way to drill into another deployed report unit, so it is used here
+     instead, with no other hyperlinkParameter children (per the "opens at
+     its own defaults" requirement above). -->
+
+<jasperReport name="trs_kpi" language="java" pageWidth="1600" pageHeight="130" columnWidth="1580" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_asof" class="java.lang.String">
+		<defaultValueExpression><![CDATA["202012"]]></defaultValueExpression>
+	</parameter>
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="p_franchisee" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT (SELECT DECIMAL(SUM(balance), 14, 2) FROM franchise_fee_ledger WHERE status <> 'Paid' AND yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions} AND $X{IN, franchisee_id, p_franchisee}) AS ar_balance,
+       (SELECT DECIMAL(SUM(balance), 14, 2) FROM franchise_fee_ledger WHERE aging_bucket = '60+ days' AND yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions} AND $X{IN, franchisee_id, p_franchisee}) AS ar_aged_60,
+       (SELECT DECIMAL(SUM(balance), 14, 2) FROM ap_invoices WHERE status <> 'Paid' AND invoice_yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions}) AS ap_balance,
+       (SELECT DECIMAL(100.0 * FLOAT8(SUM(CASE WHEN payer_profile IN ('Early','On time') THEN 1 ELSE 0 END)) / FLOAT8(COUNT(*)), 6, 1) FROM ap_invoices WHERE status = 'Paid' AND invoice_yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions}) AS ap_on_time_pct,
+       (SELECT DECIMAL(100.0 * FLOAT8(SUM(CASE WHEN tender_group <> 'Cash' THEN amount ELSE 0 END)) / FLOAT8(NULLIF(SUM(amount), 0)), 6, 1) FROM dash_tender_monthly WHERE yyyymm = INT4($P{p_asof}) AND $X{IN, region, p_regions}) AS cashless_pct,
+       (SELECT DECIMAL(SUM(total_tax_collected), 14, 2) FROM tax_collected_monthly WHERE yr = INT4($P{p_asof}) / 100 AND yyyymm <= INT4($P{p_asof}) AND $X{IN, region, p_regions}) AS tax_ytd,
+       (SELECT DECIMAL(g.closing_liability + l.closing_liability_cad, 14, 2) FROM gift_card_liability_monthly g, loyalty_liability_monthly l WHERE g.yyyymm = INT4($P{p_asof}) AND l.yyyymm = INT4($P{p_asof})) AS liability_total
+	]]></query>
+
+	<field name="ar_balance" class="java.math.BigDecimal"/>
+	<field name="ar_aged_60" class="java.math.BigDecimal"/>
+	<field name="ap_balance" class="java.math.BigDecimal"/>
+	<field name="ap_on_time_pct" class="java.math.BigDecimal"/>
+	<field name="cashless_pct" class="java.math.BigDecimal"/>
+	<field name="tax_ytd" class="java.math.BigDecimal"/>
+	<field name="liability_total" class="java.math.BigDecimal"/>
+
+	<title height="110">
+		<element kind="staticText" x="0" y="4" width="316" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[AR Outstanding]]></text></element>
+		<element kind="textField" x="0" y="24" width="316" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0" blankWhenNull="true" evaluationTime="Report" linkType="ReportExecution" linkTarget="Blank">
+			<expression><![CDATA[$F{ar_balance}]]></expression>
+			<hyperlinkParameter name="_report"><expression><![CDATA["/reports/pos_perf/rpt_franchisee_fee_statement"]]></expression></hyperlinkParameter>
+		</element>
+		<element kind="textField" x="0" y="68" width="316" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report"><expression><![CDATA[$F{ar_aged_60} == null ? "" : new java.text.DecimalFormat("$#,##0").format($F{ar_aged_60}) + " aged 60+"]]></expression></element>
+
+		<element kind="line" x="316" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="316" y="4" width="316" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[AP Outstanding]]></text></element>
+		<element kind="textField" x="316" y="24" width="316" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{ap_balance}]]></expression></element>
+		<element kind="textField" x="316" y="68" width="316" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle" evaluationTime="Report"><expression><![CDATA[$F{ap_on_time_pct} == null ? "" : $F{ap_on_time_pct} + "% paid on time"]]></expression></element>
+
+		<element kind="line" x="632" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="632" y="4" width="316" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Cashless Share]]></text></element>
+		<element kind="textField" x="632" y="24" width="316" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="#,##0.0'%'" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{cashless_pct}]]></expression></element>
+		<element kind="staticText" x="632" y="68" width="316" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[of tendered value in the cutoff month]]></text></element>
+
+		<element kind="line" x="948" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="948" y="4" width="316" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Tax Collected YTD]]></text></element>
+		<element kind="textField" x="948" y="24" width="316" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{tax_ytd}]]></expression></element>
+		<element kind="textField" x="948" y="68" width="316" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA["year to date " + $P{p_asof}.substring(0, 4) + "-" + $P{p_asof}.substring(4)]]></expression></element>
+
+		<element kind="line" x="1264" y="10" width="1" height="72" forecolor="#D6E0EF"/>
+		<element kind="staticText" x="1264" y="4" width="316" height="18" fontSize="13.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Gift + Loyalty Liability]]></text></element>
+		<element kind="textField" x="1264" y="24" width="316" height="42" fontSize="26.0" bold="true" forecolor="#1F4E79" hTextAlign="Center" vTextAlign="Middle" pattern="$#,##0" blankWhenNull="true" evaluationTime="Report"><expression><![CDATA[$F{liability_total}]]></expression></element>
+		<element kind="staticText" x="1264" y="68" width="316" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[network-wide closing balance]]></text></element>
+
+		<element kind="textField" x="0" y="88" width="1580" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><expression><![CDATA["Ledger as of 2020-12-31, invoices through " + $P{p_asof}.substring(0, 4) + "-" + $P{p_asof}.substring(4)]]></expression></element>
+	</title>
+
+</jasperReport>

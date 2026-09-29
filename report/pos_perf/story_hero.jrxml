@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Option C (Promo & Margin Story): full-bleed hero band, Software Blue
+     (#000032) background. Headline + subtitle copy computed from dash_kpi
+     (total net sales) and a 2019/2020 dash_monthly split (YoY growth),
+     matching the mockup copy ("$764M in net sales." / "+19.8% growth
+     through a pandemic.") with the re-baselined, corrected numbers so the
+     figures self-verify against live data rather than being hardcoded.
+     JR7-native, terse element syntax mirrors exec_kpi_strip.jrxml.
+
+     NAVY THEME: this tile was already the navy reference - zero margins,
+     columnWidth = pageWidth and a full-band #000032 rectangle - so it needs no
+     <background> band. The only change is the standfirst, moved off #B8D4EC
+     onto the suite's caption blue #8AC6F8. -->
+
+<jasperReport name="story_hero" language="java" pageWidth="1600" pageHeight="260" columnWidth="1600" leftMargin="0" rightMargin="0" topMargin="0" bottomMargin="0">
+	<query language="SQL"><![CDATA[
+SELECT k.sales_ext AS sales_ext, k.tx AS tx,
+       y19.s AS s2019, y20.s AS s2020,
+       (y20.s - y19.s) * 100.0 / NULLIF(y19.s, 0) AS yoy_pct
+FROM dash_kpi k,
+     (SELECT SUM(sales_ext) AS s FROM dash_monthly WHERE yr = 2019) y19,
+     (SELECT SUM(sales_ext) AS s FROM dash_monthly WHERE yr = 2020) y20
+	]]></query>
+
+	<field name="sales_ext" class="java.math.BigDecimal"/>
+	<field name="tx" class="java.lang.Long"/>
+	<field name="s2019" class="java.math.BigDecimal"/>
+	<field name="s2020" class="java.math.BigDecimal"/>
+	<field name="yoy_pct" class="java.math.BigDecimal"/>
+
+	<title height="260">
+		<element kind="rectangle" x="0" y="0" width="1600" height="260" mode="Opaque" backcolor="#000032" forecolor="#000032"/>
+
+		<element kind="image" x="60" y="34" width="52" height="52" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="130" y="46" width="700" height="24" fontSize="12.0" bold="true" forecolor="#3C91FF" hTextAlign="Left"><text><![CDATA[PROMO & MARGIN STORY]]></text></element>
+
+		<element kind="textField" x="60" y="98" width="1480" height="62" fontSize="44.0" bold="true" forecolor="#FFFFFF" hTextAlign="Left" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA["$" + new java.text.DecimalFormat("#,##0").format($F{sales_ext}.doubleValue() / 1000000.0) + "M in net sales."]]></expression>
+		</element>
+
+		<element kind="textField" x="60" y="164" width="1480" height="38" fontSize="22.0" bold="true" forecolor="#2EC0CB" hTextAlign="Left" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA["+" + new java.text.DecimalFormat("#,##0.0").format($F{yoy_pct}.doubleValue()) + "% growth through a pandemic."]]></expression>
+		</element>
+
+		<element kind="textField" x="60" y="210" width="1480" height="26" fontSize="13.0" forecolor="#8AC6F8" hTextAlign="Left" vTextAlign="Middle" evaluationTime="Report">
+			<expression><![CDATA["2020 net sales $" + new java.text.DecimalFormat("#,##0.0").format($F{s2020}.doubleValue() / 1000000.0) + "M vs. 2019 $" + new java.text.DecimalFormat("#,##0.0").format($F{s2019}.doubleValue() / 1000000.0) + "M"]]></expression>
+		</element>
+	</title>
+
+</jasperReport>

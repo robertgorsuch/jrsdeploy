@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Workforce and Labour cockpit: labour as a percent of net sales, by store
+     format. Four categories, single series, legend off, horizontal bars so
+     the format names read left to right (same plot shape as chn_bands.jrxml,
+     which confirmed on rasterized output that a horizontal category plot puts
+     the first row at the top).
+
+     DEVIATION from the task brief's query, and why it is required: the brief
+     joined the daily labour table straight to the monthly store profit table
+     on storenumber plus month. That join fans out - the labour table is at
+     store x date x shift grain, roughly 62 rows per store-month - so
+     SUM(net_sales) is counted about 62 times over while SUM(labour_cost) is
+     counted once, and the ratio comes out at 0.13 to 0.14 percent for every
+     format. The labour side is therefore pre-aggregated to store-month in a
+     derived table before the join. Verified in the warehouse: the corrected
+     query returns Shopping Mall 8.88, Strip Plaza 8.45, Standalone 8.38,
+     Urban Storefront 8.00, which reconciles with the 8.44 percent whole
+     estate figure on the key metrics strip. The monthly profit table is
+     already one row per store-month (3,950 rows for 2020, 3,950 distinct
+     store-months), so only the labour side needs collapsing.
+
+     Single series, so the bar colour is a constant. The value is still zero
+     guarded: a null on the first row fails to register the series and shifts
+     the seriesColor order bindings.
+
+     JR7-native bar plot (showTickMarks/showTickLabels are the valid flags
+     per jr7-valid-elements.md 3c). Chart is in the title band, so
+     evaluationTime="Report". Cockpit archetype: no parameters. -->
+<jasperReport name="lab_format" language="java" pageWidth="1000" pageHeight="380" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+
+	<query language="SQL"><![CDATA[
+SELECT p.store_format,
+       DECIMAL(100.0 * FLOAT8(SUM(l.labour_cost)) / FLOAT8(NULLIF(SUM(p.net_sales), 0)), 6, 2) AS labour_pct
+FROM store_pnl_monthly p
+JOIN (SELECT storenumber, yyyymm, SUM(labour_cost) AS labour_cost
+      FROM dash_labour
+      GROUP BY storenumber, yyyymm) l
+  ON l.storenumber = p.storenumber AND l.yyyymm = p.yyyymm
+WHERE p.yr = 2020
+GROUP BY p.store_format
+ORDER BY labour_pct DESC
+	]]></query>
+
+	<field name="store_format" class="java.lang.String"/>
+	<field name="labour_pct" class="java.math.BigDecimal"/>
+
+	<title height="360">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="0" width="980" height="24" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Labour pct of Sales by Format]]></text></element>
+		<element kind="staticText" x="0" y="26" width="980" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center"><text><![CDATA[Percent of 2020 net sales spent on store labour]]></text></element>
+
+		<element kind="chart" chartType="bar" x="0" y="48" width="980" height="312" showLegend="false" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA["Labour pct"]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{store_format} == null ? "Unclassified" : $F{store_format}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{labour_pct} == null ? java.math.BigDecimal.ZERO : $F{labour_pct}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot orientation="Horizontal" showTickMarks="true" showTickLabels="true">
+				<seriesColor order="0" color="#0550DC"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>

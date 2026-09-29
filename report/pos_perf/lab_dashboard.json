@@ -1,0 +1,37 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_workforce_labour",
+  "label": "POS Workforce and Labour",
+  "dashlets": [
+    {
+      "resource": "/reports/pos_perf/lab_kpi",
+      "label": "Key Metrics",
+      "showTitleBar": false,
+      "x": 0, "y": 0, "width": 40, "height": 4
+    },
+    {
+      "resource": "/reports/pos_perf/lab_heatmap",
+      "label": "Scheduled Hours Heatmap",
+      "showTitleBar": false,
+      "x": 0, "y": 4, "width": 24, "height": 12
+    },
+    {
+      "resource": "/reports/pos_perf/lab_format",
+      "label": "Labour pct by Format",
+      "showTitleBar": false,
+      "x": 24, "y": 4, "width": 16, "height": 12
+    },
+    {
+      "resource": "/reports/pos_perf/lab_indexed",
+      "label": "Indexed Trend",
+      "showTitleBar": false,
+      "x": 0, "y": 16, "width": 20, "height": 10
+    },
+    {
+      "resource": "/reports/pos_perf/lab_conversion",
+      "label": "Conversion by Region",
+      "showTitleBar": false,
+      "x": 20, "y": 16, "width": 20, "height": 10
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "folder": "/reports/pos_perf",
+  "name": "pos_treasury",
+  "label": "POS Franchise Treasury",
+  "filterButtonsPosition": "right",
+  "filters": ["p_asof", "p_regions", "p_franchisee"],
+  "dashlets": [
+    { "resource": "/reports/pos_perf/trs_kpi",          "label": "Key Metrics",                     "showTitleBar": false, "x": 0,  "y": 0,  "width": 40, "height": 4 },
+    { "resource": "/reports/pos_perf/trs_ar_aging",     "label": "Receivables Aging",               "showTitleBar": false, "x": 0,  "y": 4,  "width": 13, "height": 11 },
+    { "resource": "/reports/pos_perf/trs_dpo",          "label": "Days to Pay by Terms",            "scaleToFit": "container", "showTitleBar": false, "x": 13, "y": 4,  "width": 13, "height": 11 },
+    { "resource": "/reports/pos_perf/trs_tender_mix",   "label": "Tender Mix",                      "scaleToFit": "container", "showTitleBar": false, "x": 26, "y": 4,  "width": 14, "height": 11 },
+    { "resource": "/reports/pos_perf/trs_tax_province", "label": "Tax Collected by Province",       "scaleToFit": "container", "showTitleBar": false, "x": 0,  "y": 15, "width": 13, "height": 12 },
+    { "resource": "/reports/pos_perf/trs_liability",    "label": "Gift Card and Loyalty Liability", "scaleToFit": "container", "showTitleBar": false, "x": 13, "y": 15, "width": 13, "height": 12 },
+    { "resource": "/reports/pos_perf/trs_lease_expiry", "label": "Lease Expiries",                  "scaleToFit": "container", "showTitleBar": false, "x": 26, "y": 15, "width": 14, "height": 12 }
+  ]
+}

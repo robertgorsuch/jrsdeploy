@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Supply and Inventory console: lost value by reason by month, stacked so the
+     month total and its composition read at once. Twenty four months in a 980px
+     tile, so the month labels rotate minus 45 via categoryAxisTickLabelRotation
+     (the attribute exec_trend / trs_tender_mix use). Chart is in the title band,
+     so evaluationTime="Report".
+
+     ONLY THE STORE AND CATEGORY FILTERS APPLY HERE, DELIBERATELY. The loss
+     ledger this tile reads records a store, an item, a category and a reason,
+     and carries no region and no supplier of its own, so there is nothing for
+     those two controls to compare against. All four console parameters are
+     still DECLARED, per the established convention that every tile on a filter
+     strip accepts the strip's whole parameter set (the chn_drivers precedent
+     from the Retention and Churn console, and trs_liability from the Treasury
+     console), and the subtitle says the tile answers to the store and category
+     selection only so a reader is not misled into thinking a region or supplier
+     selection narrowed it. This is not an oversight; do not "fix" it by
+     inventing joins.
+
+     SERIES REGISTRATION ORDER. seriesColor order="n" binds by the order in
+     which the chart dataset first SEES each series, not by series name, so the
+     query pins that order with a CASE rank in the ORDER BY (Expiry, Damage,
+     Theft, Temperature Excursion, Inventory Adjustment) rather than leaving it
+     to the engine's row order, and the colours follow: Expiry #0550DC, Damage
+     #1DB6C0, Theft #D9534F, Temperature Excursion #0A4CAD, Inventory Adjustment
+     #239CA8. The earliest month carries all five reasons, so all five register
+     on the first bar. A (month, reason) pair with no events is simply ABSENT
+     from the result set rather than arriving as a row carrying a null, so there
+     is no null first value that could fail to register a series.
+
+     The filter contract, the parameter naming, and the reason store numbers are
+     compared as text are documented at length in sup_kpi.jrxml. -->
+<jasperReport name="sup_shrink" language="java" pageWidth="1000" pageHeight="380" columnWidth="980" leftMargin="10" rightMargin="10" topMargin="10" bottomMargin="10">
+	<parameter name="p_regions" class="java.util.Collection"/>
+	<parameter name="sup_store" class="java.util.Collection"/>
+	<parameter name="sup_category" class="java.util.Collection"/>
+	<parameter name="sup_supplier" class="java.util.Collection"/>
+
+	<query language="SQL"><![CDATA[
+SELECT event_year * 100 + event_month AS yyyymm,
+       VARCHAR(event_year * 100 + event_month) AS ym,
+       reason,
+       DECIMAL(SUM(shrink_value), 12, 2) AS shrink_value
+FROM shrinkage_log
+WHERE ($X{IN, VARCHAR(storenumber), sup_store})
+  AND ($X{IN, category, sup_category})
+GROUP BY event_year, event_month, reason
+ORDER BY 1, CASE reason WHEN 'Expiry' THEN 1 WHEN 'Damage' THEN 2 WHEN 'Theft' THEN 3 WHEN 'Temperature Excursion' THEN 4 ELSE 5 END
+	]]></query>
+
+	<field name="yyyymm" class="java.lang.Integer"/>
+	<field name="ym" class="java.lang.String"/>
+	<field name="reason" class="java.lang.String"/>
+	<field name="shrink_value" class="java.math.BigDecimal"/>
+
+	<title height="360">
+		<element kind="image" x="0" y="0" width="44" height="44" scaleImage="RetainShape" hImageAlign="Left" vImageAlign="Top"><expression><![CDATA["repo:/images/actian_logo"]]></expression></element>
+		<element kind="staticText" x="0" y="2" width="980" height="22" fontSize="16.0" bold="true" forecolor="#1F4E79" hTextAlign="Center"><text><![CDATA[Shrink by Reason]]></text></element>
+		<element kind="staticText" x="0" y="26" width="980" height="14" fontSize="9.0" forecolor="#5B7DA6" hTextAlign="Center" vTextAlign="Middle"><text><![CDATA[Lost value per month in CAD. Responds to the store and category selection only.]]></text></element>
+
+		<element kind="chart" chartType="stackedBar" x="0" y="48" width="980" height="312" evaluationTime="Report">
+			<dataset kind="category">
+				<series>
+					<seriesExpression><![CDATA[$F{reason}]]></seriesExpression>
+					<categoryExpression><![CDATA[$F{ym}]]></categoryExpression>
+					<valueExpression><![CDATA[$F{shrink_value}]]></valueExpression>
+				</series>
+			</dataset>
+			<plot showTickMarks="true" showTickLabels="true" categoryAxisTickLabelRotation="-45">
+				<seriesColor order="0" color="#0550DC"/>
+				<seriesColor order="1" color="#1DB6C0"/>
+				<seriesColor order="2" color="#D9534F"/>
+				<seriesColor order="3" color="#0A4CAD"/>
+				<seriesColor order="4" color="#239CA8"/>
+			</plot>
+		</element>
+	</title>
+
+</jasperReport>
