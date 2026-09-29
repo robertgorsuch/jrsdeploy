@@ -101,6 +101,11 @@ Describe "recorded-server harness (mock_jrs.py + STAGE recording)" {
     It "promote.ps1 -Manifest -Apply writes, journals compensations for every mutating step and exits 0" -Skip:(-not $script:haveTools) {
         Clear-Log
         $r = Invoke-Skill "promote.ps1" (@("-Manifest", $fixture, "-Apply") + $common)
+        if ($r.Exit -ne 0) {   # diagnostics for CI: the child's tail + the mock's stderr
+            Write-Host "    --- promote -Apply exit $($r.Exit); output tail ---"
+            ($r.Out -split "`n" | Select-Object -Last 45) | ForEach-Object { Write-Host "    | $_" }
+            Write-Host "    --- mock.err ---"; Get-Content (Join-Path $script:tmp "mock.err") -ErrorAction SilentlyContinue | Select-Object -Last 15 | ForEach-Object { Write-Host "    | $_" }
+        }
         $r.Exit | Should Be 0
         $r.Out | Should Match 'OK: promoted 1 dashboard'
         $w = @(Get-Writes)
