@@ -1,5 +1,71 @@
 # Changelog — jasper-deploy plugin
 
+## 1.3.0 (2026-09-28) -- safety model ported from jrsctl
+
+Items 4, 5, 7 and 8 of the jrsctl comparison (spec
+`specs/2026-09-28-jasper-deploy-safety-model-design.md`).
+Validated on STAGE only: deploy -> compose -> teardown -> rollback -> verify_suite
+PASS, and promote plan -> apply -> rollback -> verify_suite PASS, all on
+`/reports/_smoke/harness`. PROD was not contacted.
+
+### Positive write gate (plan by default)
+- `promote.ps1`, `compose_dashboard.ps1`, `teardown_dashboard.ps1` and
+  `deploy_report.ps1 -Overwrite` print their plan and write nothing unless
+  `-Apply` is passed. `-WhatIf` / `-DryRun` stay accepted as names for the
+  default; `-Apply` with either is an error. A clobbered switch now defaults to
+  plan mode (the incident direction is closed).
+- Callers that are the deploy command pass `-Apply` through: `build_dashlets.ps1`,
+  `reconcile.ps1 -Apply`, `smoke_test.ps1`, `scripts/pos_perf/restore_prod_pos.ps1
+  -Apply`, the wizard servlet.
+
+### Write guard below the scripts (`_jrs_common.ps1`)
+- `Enter-JrsPlanMode` / `Restore-JrsPlanMode` / `Test-JrsPlanMode`; a parent in
+  plan mode is never downgraded by a child called with `-Apply`.
+- `Assert-JrsWriteAllowed` runs inside `Invoke-JrsPut`, `Invoke-JrsDelete` and
+  every non-GET `Invoke-JrsRest` (export / reportExecutions / contexts / reports
+  are read-like): `PLAN MODE` while planning (G64), `PROD GUARD` for a `prod*`
+  profile or its URL unless `$env:JRS_ALLOW_PROD_WRITE = '1'` (G65). Reads are
+  never guarded. Each `-Apply` run also prechecks the target before any backup.
+- `Resolve-JrsConfig` exposes `IsProd` (`Test-JrsProdTarget`).
+- `Invoke-JrsRest -FormFile` (multipart); `import_resource.ps1` and the
+  dashboard DELETE in `compose_dashboard.ps1` now go through the guarded helpers.
+
+### Run journal and rollback (`_jrs_run.ps1`, `recover_run.ps1`)
+- Every `-Apply` run writes `out/runs/<runId>/run.json` + `transitions.jsonl`
+  (`r-yyyyMMdd-HHmmss-xxxx`; `$env:JRS_RUNS_DIR` overrides). Child scripts join
+  the parent run. Passwords are never persisted.
+- Backups are taken by default before every delete/overwrite (`-NoBackup` to
+  skip, journaled as irreversible). This closes the teardown-without-backup gap.
+- Compensations are data: `reimport {zip, uri}` (pre-delete then import, so a
+  dashboard's companion files come back) and `delete {uri}`.
+- `promote.ps1 -Apply` compensates automatically on failure, failing step first
+  then succeeded steps newest-first (`-NoRollback` disables). Exit codes: 0, 2
+  nothing mutated, 3 rolled back, 4 rollback incomplete.
+- `recover_run.ps1 -List | -RunId <id|latest> [-Rollback [-Apply]]` replaces the
+  POS-only restore script for the generic case; it resolves the run's own target
+  so the PROD guard still applies.
+- `Export-JrsBackup` shared helper; `New-JrsDeployResult` accepts `Status PLAN`.
+
+### Recorded-server harness
+- `tests/mock_jrs.py`: stateful replay of `tests/recordings/<ver>-<edition>/`
+  with a JSON-lines request log; accepts writes, answers export/import state
+  machines, learns imported URIs from the archive's index.xml.
+- `scripts/record_server.ps1 -Manifest -Env stage`: read-only recorder
+  (serverInfo, folders, dashboards, tiles incl. `?expanded=true`, controls);
+  timestamps and credential-shaped keys stripped.
+- `tests/recordings/10.0.0-PRO/`: recorded from STAGE 2026-09-28 for
+  `tests/fixtures/harness/harness_dashboard.json` (+ `src/tile_a|b.jrxml`).
+- `tests/harness.Tests.ps1` (9 tests): promote/teardown/compose in plan mode
+  issue GETs only and exit 0; promote `-Apply` writes, journals >= 4
+  compensations, exits 0; `recover_run -Rollback` plans without writing and
+  `-Apply` replays and exits 3; `deploy_report -Overwrite` without `-Apply` never
+  PUTs. Skips cleanly when python or the recording is missing.
+- Unit tests: `tests/write_guard.Tests.ps1` (16), `tests/run_journal.Tests.ps1`
+  (9). Suite: 142 passed.
+- `smoke_test.ps1` precheck now names the failing Pester tests; the test files that
+  expect a child's stderr pin `$ErrorActionPreference = 'Continue'` so the suite is
+  green under the smoke test's `Stop` as well. Smoke on STAGE 2026-09-28: 25/25.
+
 ## 1.2.1 (2026-08-28) -- incident fixes
 
 A `promote.ps1 -Manifest ... -WhatIf` run against PROD was NOT read-only and

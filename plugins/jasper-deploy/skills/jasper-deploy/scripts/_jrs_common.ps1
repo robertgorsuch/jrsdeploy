@@ -68,6 +68,21 @@
                        `curl` is an Invoke-WebRequest alias), 'curl' elsewhere.
   Get-JrsPython      - the Python launcher: 'python' on Windows, 'python3' on
                        macOS/Linux (where bare 'python' is usually absent).
+
+  Write guard (1.3.0, ported from jrsctl; spec specs/2026-09-28-*):
+  Enter-JrsPlanMode  - `$prev = Enter-JrsPlanMode -Apply:$Apply` at the top of a
+                       plan-by-default script; Restore-JrsPlanMode $prev in finally.
+                       A parent in plan mode is never downgraded by a child.
+  Assert-JrsWriteAllowed - called by Invoke-JrsPut / Invoke-JrsDelete / every
+                       non-GET Invoke-JrsRest (except export/reportExecutions/
+                       contexts/reports): throws "PLAN MODE" while planning and
+                       "PROD GUARD" for a prod target unless
+                       $env:JRS_ALLOW_PROD_WRITE = '1'. Reads are never guarded.
+  Test-JrsProdTarget - profile name ^prod, or URL equal to a ^prod profile's URL;
+                       Resolve-JrsConfig exposes it as .IsProd.
+  Run journal        - see _jrs_run.ps1 (dot-sourced below): New-JrsRun,
+                       Write-JrsStep, Complete-JrsRun, Get-JrsRun(s),
+                       Get-JrsRollbackPlan, Invoke-JrsRollback.
 #>
 
 # $IsWindows is an automatic in pwsh 6+; it does NOT exist under Windows
@@ -138,7 +153,65 @@ function Resolve-JrsConfig {
     if (-not $usr -or -not $pw) { throw "No credentials. Set -User/-Password, `$env:JRS_USER/JRS_PASS, or user/password in jrs.config.json" }
 
     $ds = pick $null $null "dataSourceUri"
-    return [pscustomobject]@{ ServerUrl = $u.TrimEnd("/"); User = $usr; Password = $pw; DataSourceUri = $ds; Env = $Env }
+    $isProd = Test-JrsProdTarget -Env $Env -ServerUrl $u -Config $cfg
+    return [pscustomobject]@{ ServerUrl = $u.TrimEnd("/"); User = $usr; Password = $pw; DataSourceUri = $ds; Env = $Env; IsProd = $isProd }
+}
+
+# =============================================================================
+# Write guard: plan mode + PROD guard, enforced BELOW the scripts (inside
+# Invoke-JrsPut / Invoke-JrsDelete / Invoke-JrsRest) so a script that forgets,
+# or whose -Apply switch was clobbered by a dot-sourced param() block, cannot
+# write. Ported from jrsctl's plan/confirm model (spec 2026-09-28).
+# =============================================================================
+
+function Test-JrsProdTarget {
+    # A target is PROD when its profile name starts with "prod" OR its URL equals
+    # the URL of any profile whose name starts with "prod" (so an explicit
+    # -ServerUrl/-ToServerUrl triple pointing at the PROD host is caught too).
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$Env, [string]$ServerUrl, $Config)
+    if ($Env -and $Env -match '^(?i)prod') { return $true }
+    if (-not $Config -or -not ($Config.PSObject.Properties.Name -contains "environments") -or -not $Config.environments) { return $false }
+    $norm = { param($s) "$s".Trim().TrimEnd("/").ToLowerInvariant() }
+    $mine = & $norm $ServerUrl
+    if (-not $mine) { return $false }
+    foreach ($p in $Config.environments.PSObject.Properties) {
+        if ($p.Name -notmatch '^(?i)prod') { continue }
+        $v = $p.Value
+        if ($v -and ($v.PSObject.Properties.Name -contains "serverUrl") -and ((& $norm $v.serverUrl) -eq $mine)) { return $true }
+    }
+    return $false
+}
+
+function Test-JrsPlanMode { return ($Global:JrsPlanMode -eq $true) }
+
+function Enter-JrsPlanMode {
+    # Call at the top of a plan-by-default script: `$prev = Enter-JrsPlanMode -Apply:$Apply`
+    # then `Restore-JrsPlanMode $prev` in a finally block. A parent already in
+    # plan mode is never downgraded by a child called with -Apply, so plan mode
+    # propagates through every in-process child script.
+    [CmdletBinding()]
+    param([switch]$Apply)
+    $prev = $Global:JrsPlanMode
+    $Global:JrsPlanMode = ($prev -eq $true) -or (-not $Apply)
+    return $prev
+}
+
+function Restore-JrsPlanMode($Previous) { $Global:JrsPlanMode = $Previous }
+
+function Assert-JrsWriteAllowed {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Jrs, [Parameter(Mandatory)][string]$Method, [Parameter(Mandatory)][string]$Url)
+    if (Test-JrsPlanMode) {
+        throw "PLAN MODE: refused $Method $Url -- this run is planning only (nothing is written); pass -Apply to write"
+    }
+    $isProd = ($Jrs.PSObject.Properties.Name -contains "IsProd") -and ($Jrs.IsProd -eq $true)
+    if ($isProd -and ([Environment]::GetEnvironmentVariable("JRS_ALLOW_PROD_WRITE") -ne "1")) {
+        throw ("PROD GUARD: refused $Method $Url on $($Jrs.ServerUrl)$(if ($Jrs.Env) { " [env $($Jrs.Env)]" }). " +
+               "Writes to a prod profile need `$env:JRS_ALLOW_PROD_WRITE = '1' set by a human for this one run, " +
+               "after the same -Apply run succeeded on STAGE (RUNBOOK policy, incident 2026-08-28).")
+    }
 }
 
 function Invoke-JrsPut {
@@ -153,6 +226,7 @@ function Invoke-JrsPut {
     )
     $url = "$($Jrs.ServerUrl)/rest_v2/resources$Uri" + "?createFolders=true"
     if ($Overwrite) { $url += "&overwrite=true" }
+    Assert-JrsWriteAllowed -Jrs $Jrs -Method PUT -Url $url
     Write-Host "PUT $url"
     $resp = & (Get-JrsCurl) -s -S -w "`n%{http_code}" -u "$($Jrs.User):$($Jrs.Password)" `
         -X PUT -H "Content-Type: $ContentType" -H "Accept: application/json" `
@@ -166,6 +240,7 @@ function Invoke-JrsPut {
 function Invoke-JrsDelete {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Jrs, [Parameter(Mandatory)][string]$Uri)
+    Assert-JrsWriteAllowed -Jrs $Jrs -Method DELETE -Url "$($Jrs.ServerUrl)/rest_v2/resources$Uri"
     $sink = [IO.Path]::GetTempFileName()
     try {
         $code = & (Get-JrsCurl) -s -o $sink -w "%{http_code}" -u "$($Jrs.User):$($Jrs.Password)" `
@@ -279,7 +354,7 @@ function New-JrsDeployResult {
     param(
         [Parameter(Mandatory)][string]$Uri,
         [string]$Code = "",
-        [ValidateSet("OK", "FAIL")][string]$Status = "OK",
+        [ValidateSet("OK", "FAIL", "PLAN")][string]$Status = "OK",   # PLAN: -Overwrite without -Apply (nothing written)
         [int]$ControlsAttached = 0,
         [string]$Message = ""
     )
@@ -364,17 +439,24 @@ function Invoke-JrsRest {
         [Parameter(Mandatory)][string]$Path,         # path under ServerUrl, e.g. /rest_v2/jobs (may include ?query)
         [string]$ContentType,                        # set for bodied requests
         [string]$Accept = "application/json",
-        [string]$JsonFile                            # optional request-body file (survives PS->curl quoting)
+        [string]$JsonFile,                           # optional request-body file (survives PS->curl quoting)
+        [string]$FormFile                            # optional multipart upload: curl -F "file=@<path>;type=application/zip" (import)
     )
     # Build the full literal URL in one string before handing it to curl: an
     # inline "$base?query=..." expression at the PowerShell->curl boundary can
     # yield exit-code 000 (request never sent). Same root cause as the JSON-body
     # quoting gotcha -- keep complex args out of the inline boundary.
     $url = "$($Jrs.ServerUrl)$Path"
+    # Every non-GET is a write unless it is one of the read-like POST endpoints
+    # (an export/report execution creates nothing in the repository).
+    if ($Method -ne "GET" -and $Path -notmatch '^/rest_v2/(export|reportExecutions|contexts|reports)(/|\?|$)') {
+        Assert-JrsWriteAllowed -Jrs $Jrs -Method $Method -Url $url
+    }
     $cArgs = @("-s", "-S", "-w", "`n%{http_code}", "-u", "$($Jrs.User):$($Jrs.Password)",
                "-X", $Method, "-H", "Accept: $Accept")
     if ($ContentType) { $cArgs += @("-H", "Content-Type: $ContentType") }
     if ($JsonFile)    { $cArgs += @("--data-binary", "@$JsonFile") }
+    if ($FormFile)    { $cArgs += @("-F", "file=@$FormFile;type=application/zip") }
     $cArgs += $url
     $resp = & (Get-JrsCurl) @cArgs
     $lines = $resp -split "`n"
@@ -443,3 +525,6 @@ function Invoke-JrCompile {
     if ($PassThru) { return [pscustomobject]@{ Ok = $ok; Jasper = $jasper; Output = ($out | Out-String) } }
     return $ok
 }
+
+# --- run journal + rollback (no param block; see the header) -----------------
+. (Join-Path $PSScriptRoot "_jrs_run.ps1")

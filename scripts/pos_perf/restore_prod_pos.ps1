@@ -100,7 +100,7 @@ foreach ($m in $manifests) {
     if (-not $Apply) { Write-Host ("  [would compose] {0} (exists on target: {1})" -f $u, $exists); continue }
     Write-Host "  composing $u"
     $wd = Join-Path "out/restore_$ToEnv" ("dash_" + $d.name)
-    $cargs = @{ Manifest = $m.FullName; Replace = $true; WorkDir = $wd; ServerUrl = $to.ServerUrl; User = $to.User; Password = $to.Password }
+    $cargs = @{ Manifest = $m.FullName; Replace = $true; Apply = $true; WorkDir = $wd; ServerUrl = $to.ServerUrl; User = $to.User; Password = $to.Password }
     if ($exists) { $cargs.Backup = $true }
     & (Join-Path $skill "compose_dashboard.ps1") @cargs | ForEach-Object { if ($_ -is [string]) { Write-Host "    $_" } }
     if (-not (Test-JrsResource -Jrs $to -Uri $u)) { throw "dashboard $u still absent after compose" }

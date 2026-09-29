@@ -284,3 +284,26 @@ ASCII only. Terse on purpose.
 - Fix: the attach phase re-reads the live unit after the tile step and attaches
   whenever live != wanted (`promote.ps1` 1.2.1). Plan lines now say
   "re-verified live after the tile step".
+
+### G64
+- Symptom: a script throws `PLAN MODE: refused PUT/DELETE/POST <url> -- this run is
+  planning only (nothing is written); pass -Apply to write`.
+- Cause: `promote.ps1`, `compose_dashboard.ps1`, `teardown_dashboard.ps1` and
+  `deploy_report.ps1 -Overwrite` plan by default (1.3.0). Plan mode is a process-wide
+  state set by `Enter-JrsPlanMode` and enforced inside `Invoke-JrsPut` /
+  `Invoke-JrsDelete` / non-GET `Invoke-JrsRest`, so a child script or a clobbered
+  switch (G60) cannot turn a plan into writes. A parent in plan mode is never
+  downgraded by a child called with `-Apply`.
+- Fix: re-run with `-Apply` (after reading the plan). If you see it from a script
+  that has no `-Apply`, the caller is planning: pass `-Apply` at the top.
+
+### G65
+- Symptom: `PROD GUARD: refused <method> <url> on <server> [env prod]. Writes to a
+  prod profile need $env:JRS_ALLOW_PROD_WRITE = '1' ...`, exit 2, nothing written.
+- Cause: the target profile name starts with `prod`, or its URL equals such a
+  profile's URL (an explicit `-ToServerUrl` triple is caught too). Reads are never
+  guarded; `POST /rest_v2/export` counts as a read. The check also runs as a
+  precheck at the start of every `-Apply` run, before any backup export.
+- Fix: a human sets `$env:JRS_ALLOW_PROD_WRITE = '1'` in the shell for that one
+  run, after the same `-Apply` run succeeded on STAGE (RUNBOOK policy, incident
+  2026-08-28). Agents never set it.

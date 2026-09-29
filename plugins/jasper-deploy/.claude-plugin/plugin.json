@@ -1,6 +1,6 @@
 {
   "name": "jasper-deploy",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Design, compile, and deploy JasperReports artifacts to JasperReports Server over REST v2: scaffold JR7 jrxml from SQL, lint/compile/deploy reports and dashboards, manage datasources, Domains, OLAP, themes, input controls, scheduling, permissions, and STAGE/PROD promotion. Includes a doc-derived reference library covering JRS 4.7 through 10.1 (version deltas, upgrade/migration playbook, authentication, hardening, Domains, Visualize.js).",
   "author": {
     "name": "Robert Gorsuch",

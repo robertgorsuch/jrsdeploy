@@ -976,6 +976,26 @@ points a write-capable script at PROD, dry-run flags included, unless the
 user explicitly asks for that exact run and the dry-run path has been proven
 on STAGE with the write helpers stubbed.
 
+Since jasper-deploy 1.3.0 (2026-09-28) that policy is also code, ported from
+jrsctl's plan/confirm/journal model (spec
+`specs/2026-09-28-jasper-deploy-safety-model-design.md`):
+
+- `promote.ps1`, `compose_dashboard.ps1`, `teardown_dashboard.ps1` and
+  `deploy_report.ps1 -Overwrite` plan by default and write only with `-Apply`.
+  Plan mode is enforced inside `Invoke-JrsPut`/`Invoke-JrsDelete`/`Invoke-JrsRest`
+  (G64), so the G60 clobber can only fail safe.
+- Any write to a `prod*` profile or its URL is refused with `PROD GUARD` unless
+  the human running it sets `$env:JRS_ALLOW_PROD_WRITE = '1'` in that shell (G65).
+  Agents never set it.
+- Every `-Apply` run is journaled under `plugins/.../out/runs/<runId>` with
+  backups and per-step compensations; `recover_run.ps1 -RunId <id> -Rollback -Apply`
+  undoes it, and `promote.ps1 -Apply` rolls itself back on failure (exit 3/4).
+- "Proven on STAGE with the write helpers stubbed" is now
+  `tests/harness.Tests.ps1`: the real scripts run against `tests/mock_jrs.py`
+  replaying a STAGE recording, and the test asserts zero PUT/POST/DELETE in plan
+  mode. Re-record with `record_server.ps1 -Manifest <suite> -Env stage` when the
+  suite changes.
+
 ### PROD promotion of the Phase 1 finance suite (recipe; executed 2026-08-27, see above)
 
 Not run by any agent -- auto-mode denies PROD writes. PROD is

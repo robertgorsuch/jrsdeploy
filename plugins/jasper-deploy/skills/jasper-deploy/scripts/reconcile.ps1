@@ -301,7 +301,7 @@ foreach ($p in $plan) {
             } else {
                 throw "report $uri needs 'jrxml' (a path) or 'scaffold' (a spec)"
             }
-            $a = @{ Jrxml = $jrxml; TargetUri = $uri; Overwrite = $true } + $creds
+            $a = @{ Jrxml = $jrxml; TargetUri = $uri; Overwrite = $true; Apply = $true } + $creds   # reconcile -Apply already gates this branch
             if ($r.label)         { $a.Label         = "$($r.label)" }
             if ($r.description)   { $a.Description    = "$($r.description)" }
             if ($r.dataSourceUri) { $a.DataSourceUri = "$($r.dataSourceUri)" }

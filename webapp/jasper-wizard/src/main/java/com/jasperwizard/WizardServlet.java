@@ -190,6 +190,7 @@ public class WizardServlet extends HttpServlet {
         addArg(da, "-Label", label);
         addArg(da, "-DataSourceUri", ds);
         da.add("-Overwrite");
+        da.add("-Apply");   // deploy_report -Overwrite plans by default (jasper-deploy 1.3.0)
         // optional interactive input control: param:kind[:label[:extra]]
         String control = param(req, "control", "");
         if (!empty(control)) { da.add("-Control"); da.add(control); }
@@ -299,6 +300,7 @@ public class WizardServlet extends HttpServlet {
         List<String> a = new ArrayList<>();
         addArg(a, "-Manifest", mf.getAbsolutePath());
         addArg(a, "-WorkDir", new File(workDir, "dash_build_" + System.currentTimeMillis()).getAbsolutePath());
+        a.add("-Apply");   // compose_dashboard plans by default (jasper-deploy 1.3.0)
         ScriptRunner.Result r = run(jrsEnv()).powershell(script("compose_dashboard.ps1"), a);
         String dashUri = (folder + "/" + safe).replaceAll("//+", "/");
         String viewer = jrsUrl + "/dashboard/viewer.html#" + JrsClient.enc(dashUri);

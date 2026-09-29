@@ -117,14 +117,20 @@ A recompose over an existing dashboard is ONE logged transaction:
 `[backup] -> DELETE dashboard -> import fresh archive -> verify`. That is the
 default; `-Replace` names it explicitly (idempotent: same manifest in, same
 dashboard out, any number of times) and `-KeepExisting` skips the delete
-(rarely wanted -- the import then cannot change the live layout). `-Backup`
-exports the old dashboard to `-BackupDir` first; the archive path comes back
-as `BackupPath`. `-Env <profile>` targets a named environment; `-EnsureControls`
-creates the manifest's `controls` first (see below). The script returns a
-result object on the pipeline:
+(rarely wanted -- the import then cannot change the live layout). **Since 1.3.0
+the script plans by default**: without `-Apply` it prints the COMPOSE PLAN (GETs
+only) and returns `Code = PLAN`. With `-Apply` the old dashboard is exported to
+`-BackupDir` first by default (`-NoBackup` skips; the archive path comes back as
+`BackupPath`) and the delete + import steps are journaled under `out/runs/<runId>`
+with a `reimport` (or `delete`, for a new dashboard) compensation, so
+`recover_run.ps1 -RunId <id> -Rollback -Apply` undoes the recompose. `-Env <profile>`
+targets a named environment (a `prod*` profile additionally needs
+`$env:JRS_ALLOW_PROD_WRITE = '1'`, G65); `-EnsureControls` creates the manifest's
+`controls` first (see below). The script returns a result object on the pipeline:
 ```powershell
-$r = & $skill\compose_dashboard.ps1 -Manifest report\pos_perf\trs_dashboard.json -Replace -Backup -Env prod
-$r   # Uri, Code, Replaced, BackupPath, Dashlets, ModelResources, ViewUrl
+& $skill\compose_dashboard.ps1 -Manifest report\pos_perf\trs_dashboard.json -Replace -Env stage          # plan only
+$r = & $skill\compose_dashboard.ps1 -Manifest report\pos_perf\trs_dashboard.json -Replace -Apply -Env stage
+$r   # Uri, Code, Replaced, BackupPath, Dashlets, ModelResources, ViewUrl, RunId
 ```
 If the import is blocked by `403 resource.in.use` (a tile still owned by a live
 dashboard, e.g. after `-KeepExisting`) or by `import.decode.failed` (an archive
@@ -171,8 +177,8 @@ server in one step (a folder URI promotes a whole app). Named profiles:
 promotion" recipes: controls, teardown, 28 deploys, attach, recompose) from the
 compose manifests, in dependency-safe order across every manifest given:
 ```powershell
-& $skill\promote.ps1 -Manifest report\pos_perf\*_dashboard.json -FromEnv stage -ToEnv prod -EnsureControls -WhatIf
-& $skill\promote.ps1 -Manifest report\pos_perf\*_dashboard.json -FromEnv stage -ToEnv prod -EnsureControls -Backup
+& $skill\promote.ps1 -Manifest report\pos_perf\*_dashboard.json -FromEnv stage -ToEnv prod -EnsureControls          # plan (default; -WhatIf is the same)
+& $skill\promote.ps1 -Manifest report\pos_perf\*_dashboard.json -FromEnv stage -ToEnv prod -EnsureControls -Apply   # human-run; needs JRS_ALLOW_PROD_WRITE=1
 ```
 Phases: (1) tear down every target dashboard (`teardown_dashboard.ps1`; frees
 the `resource.in.use` locks) -> (2) ensure folders -> (3) ensure input
@@ -182,17 +188,30 @@ controls (manifest `controls` spec, else copy the source's definition of each
 `deploy_report.ps1 -Overwrite`; otherwise export+import from the source (which
 can fail with `import.decode.failed` across servers -- keep the jrxml local)
 -> (5) re-attach each tile's controls -> (6) `compose_dashboard.ps1 -Replace`
-per dashboard on the target. `-WhatIf` prints the full plan -- what exists on
-the target, the action per step, and a byte comparison of each local jrxml
-against the target's (`identical` tiles are skipped and only re-attached) --
-and issues GETs only. `-Manifest` accepts a file, a directory (every `*.json`
-with `dashlets`), or a glob.
+per dashboard on the target. **Plan by default (1.3.0):** without `-Apply` the
+script prints the full plan -- what exists on the target, the action per step,
+and a byte comparison of each local jrxml against the target's (`identical`
+tiles are skipped and only re-attached) -- and issues GETs only; plan mode is
+enforced by the write guard in `_jrs_common.ps1` for every child script (G64).
+`-Apply` runs the plan under a journaled run (`out/runs/<runId>`): every delete
+and overwrite is backed up first (`-NoBackup` to skip), each mutating step
+carries a `reimport`/`delete` compensation, and a failed step triggers an
+automatic rollback (the failing step first, then every succeeded step newest
+first; `-NoRollback` leaves it to `recover_run.ps1`). Exit codes follow jrsctl:
+0 ok, 2 nothing mutated, 3 failed and rolled back, 4 rollback incomplete. A
+succeeded run can still be undone later: `recover_run.ps1 -RunId <id> -Rollback
+-Apply`. `-Manifest` accepts a file, a directory (every `*.json` with `dashlets`),
+or a glob. Validated on STAGE 2026-09-28 (plan -> apply -> rollback -> verify_suite
+PASS) and offline by `tests/harness.Tests.ps1` against the STAGE recording.
 
 ## Teardown — `teardown_dashboard.ps1`
-`teardown_dashboard.ps1 -Uri <dash> [-IncludeReports] [-DryRun]` deletes the
-dashboard first (releasing the `resource.in.use` locks), then its report tiles +
+`teardown_dashboard.ps1 -Uri <dash> [-IncludeReports] [-Apply] [-NoBackup]` deletes
+the dashboard first (releasing the `resource.in.use` locks), then its report tiles +
 `<report>_controls` folders; a report still used by another dashboard is skipped,
-not half-deleted.
+not half-deleted. **Plans by default** (`-DryRun` is the same); `-Apply` exports
+every resource to `out/backups` before deleting it and journals the run, so
+`recover_run.ps1 -RunId <id> -Rollback -Apply` re-imports them (proven on STAGE
+2026-09-28: dashboard + 2 tiles deleted, 3/3 compensated, verify_suite PASS).
 
 ## View a dashboard
 Use the HTML5 viewer (NOT a `flow.html` flow — there is no `dashboardRuntimeFlow`;

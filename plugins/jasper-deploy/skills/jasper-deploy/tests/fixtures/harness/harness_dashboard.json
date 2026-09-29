@@ -1,0 +1,11 @@
+{
+  "folder": "/reports/_smoke/harness",
+  "name": "harness_dash",
+  "label": "Harness Dashboard",
+  "dataSourceUri": "/public/Samples/Data_Sources/FoodmartDataSource",
+  "cols": 40,
+  "dashlets": [
+    { "resource": "/reports/_smoke/harness/tile_a", "label": "Tile A", "x": 0,  "y": 0, "width": 20, "height": 10 },
+    { "resource": "/reports/_smoke/harness/tile_b", "label": "Tile B", "x": 20, "y": 0, "width": 20, "height": 10 }
+  ]
+}

@@ -167,3 +167,33 @@ in place of `smoke_test.ps1`; no `PGPASSWORD` is needed.
 ## Cross-references
 - `references/seed-data.md` -- the sample DBs + bindings the test assumes.
 - `SKILL.md` (Notes / gotchas -> "Smoke test") -- the authoritative step list.
+
+## Run journal, rollback and the recorded-server harness (1.3.0)
+
+Every `-Apply` run of `promote.ps1`, `compose_dashboard.ps1`,
+`teardown_dashboard.ps1` or `deploy_report.ps1 -Overwrite` is journaled under
+`out/runs/<runId>/` (`run.json` + `transitions.jsonl`; `$env:JRS_RUNS_DIR`
+overrides). Each mutating step carries a compensation (`reimport {zip, uri}` or
+`delete {uri}`); backups are taken by default before every delete/overwrite.
+
+```powershell
+& $skill\recover_run.ps1 -List                              # newest first: id, operation, status, target, exit
+& $skill\recover_run.ps1 -RunId latest                      # plan, transitions, what can be rolled back
+& $skill\recover_run.ps1 -RunId r-20260929-0010 -Rollback   # rollback plan only (GETs; nothing written)
+& $skill\recover_run.ps1 -RunId r-20260929-0010 -Rollback -Apply   # replay newest-first; exit 3 = ROLLED_BACK, 4 = incomplete
+```
+
+The harness proves, offline, what the 2026-08-28 incident lacked: that a
+plan-mode run issues no PUT/POST/DELETE.
+
+```powershell
+& $skill\record_server.ps1 -Manifest tests\fixtures\harness\harness_dashboard.json -Env stage   # read-only; -> tests/recordings/10.0.0-PRO
+Invoke-Pester -Path tests\harness.Tests.ps1     # starts tests/mock_jrs.py on a free port, runs the real scripts in a child PowerShell
+```
+
+`tests/mock_jrs.py --port N --recording <dir> --log <file>` replays the
+recording, logs every request as a JSON line, accepts writes (stateful: a
+DELETE makes the next GET 404, an imported archive's `index.xml` URIs appear)
+and answers the export/import state machines, so apply-mode runs and rollbacks
+can be exercised end to end without a server. Re-record when a suite changes.
+Unmatched GETs answer a JRS-style `resource.not.found`.

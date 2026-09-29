@@ -27,9 +27,21 @@
     5. re-attach each tile's input controls (deploy -Overwrite drops them):
        dashlet "controls" list, else whatever the SOURCE report unit has
     6. recompose every dashboard on the target -- compose_dashboard.ps1 -Replace
-  -WhatIf prints the full plan (what exists on the target, what would change,
-  a byte-level jrxml comparison for tiles with a local jrxml) and writes
-  NOTHING (only GETs are issued).
+  SAFETY MODEL (1.3.0, ported from jrsctl; spec specs/2026-09-28-*):
+    * PLAN BY DEFAULT. Without -Apply both modes print the full plan (what
+      exists on the target, what would change, a byte-level jrxml comparison
+      for tiles with a local jrxml) and write NOTHING: plan mode is enforced
+      below this script by _jrs_common.ps1's write guard for every child
+      script, so a clobbered switch (G60) can only fail safe. -WhatIf is the
+      legacy name for the default.
+    * -Apply runs under a journaled run (out\runs\<runId>): every delete and
+      overwrite is backed up first (-NoBackup skips), each mutating step
+      records a 'reimport'/'delete' compensation, and a failed step rolls the
+      run back automatically (-NoRollback to leave it for recover_run.ps1).
+      Exit codes: 0 ok, 2 nothing mutated, 3 failed and rolled back, 4 rollback
+      incomplete (manual action required). Undo a finished run any time with
+      recover_run.ps1 -RunId <id> -Rollback -Apply.
+    * A prod* target needs $env:JRS_ALLOW_PROD_WRITE = '1' set by a human (G65).
 
   Servers can be named environment profiles from jrs.config.json "environments"
   (-FromEnv / -ToEnv) or explicit URLs + credentials (-From* / -To*). Source
@@ -55,20 +67,28 @@
 .PARAMETER Archive
   Where to write the intermediate .zip (default backups/promote_<name>.zip).
 
-.PARAMETER WhatIf
-  Manifest mode: print the plan and write nothing.
+.PARAMETER Apply
+  Actually write. Without it (both modes) the plan is printed and nothing is
+  written; -WhatIf is the legacy name for that default.
 
 .PARAMETER EnsureControls
   Manifest mode: create missing input controls on the target before deploying.
 
-.PARAMETER Backup
-  Manifest mode: back up each existing target report/dashboard before replacing it.
+.PARAMETER NoBackup
+  Skip the export taken before every delete/overwrite (those steps become
+  irreversible for recover_run.ps1). -Backup is accepted for compatibility.
+
+.PARAMETER NoRollback
+  Do not compensate automatically when an -Apply run fails (exit 4; undo later
+  with recover_run.ps1 -RunId <id> -Rollback -Apply).
 
 .EXAMPLE
-  .\promote.ps1 -Uri /reports/geocoder/sales_dashboard -FromEnv stage -ToEnv prod
+  .\promote.ps1 -Uri /reports/geocoder/sales_dashboard -FromEnv stage -ToEnv prod          # plan
+  .\promote.ps1 -Uri /reports/geocoder/sales_dashboard -FromEnv stage -ToEnv prod -Apply   # write (JRS_ALLOW_PROD_WRITE=1)
 
 .EXAMPLE
-  .\promote.ps1 -Manifest report\pos_perf\*_dashboard.json -FromEnv stage -ToEnv prod -EnsureControls -WhatIf
+  .\promote.ps1 -Manifest report\pos_perf\*_dashboard.json -FromEnv stage -ToEnv prod -EnsureControls
+  .\promote.ps1 -Manifest report\pos_perf\*_dashboard.json -FromEnv stage -ToEnv prod -EnsureControls -Apply
 
 .EXAMPLE
   .\promote.ps1 -Uri /reports/geocoder/sales_dashboard `
@@ -88,9 +108,12 @@ param(
     [string]$FromEnv,
     [string]$Archive,
     [bool]$Update = $true,
-    [switch]$WhatIf,
+    [switch]$Apply,             # PLAN BY DEFAULT (1.3.0): without -Apply the plan is printed and nothing is written
+    [switch]$WhatIf,            # legacy name for the default (plan) mode; cannot be combined with -Apply
     [switch]$EnsureControls,
-    [switch]$Backup,
+    [switch]$Backup,            # accepted for compatibility: backups are now taken by default before every delete/overwrite
+    [switch]$NoBackup,          # skip them (those steps are journaled as irreversible)
+    [switch]$NoRollback,        # on a failed -Apply run, do NOT compensate automatically (leave it for recover_run.ps1)
     [string]$WorkDir = "out/promote"
 )
 
@@ -335,29 +358,43 @@ function Copy-JrsInputControl($From, $To, [string]$Uri) {
     Assert-JrsOk -Response $r -Operation "PUT $Uri" | Out-Null
 }
 
-function Invoke-PromotePlan($Plan, $Manifests, $From, $To, [switch]$EnsureControls, [switch]$Backup, [string]$WorkDir) {
+function Invoke-PromotePlan($Plan, $Manifests, $From, $To, [switch]$EnsureControls, [switch]$NoBackup, [string]$WorkDir, $Run) {
+    # Executes an annotated plan in apply mode. Every child script is called with
+    # -Apply (they plan by default, 1.3.0) and journals into $Run (nested runs join
+    # the parent); steps done here directly journal their own compensation.
     $toArgs = @{ ServerUrl = $To.ServerUrl; User = $To.User; Password = $To.Password }
     New-Item -ItemType Directory -Force $WorkDir | Out-Null
     foreach ($s in @($Plan)) {
         Write-Host "=== [$($s.Order)] $($s.Kind) $($s.Uri): $($s.Action)"
+        $stepId = "promote.$($s.Kind):$($s.Uri)"
         switch ($s.Kind) {
-            "teardown" { if ($s.ExistsOnTarget) { Invoke-ChildScript "teardown_dashboard.ps1" ($toArgs + @{ Uri = $s.Uri }) } }
+            "teardown" {
+                if ($s.ExistsOnTarget) { Invoke-ChildScript "teardown_dashboard.ps1" ($toArgs + @{ Uri = $s.Uri; Apply = $true; NoBackup = [bool]$NoBackup }) }
+                else { Write-JrsStep -Run $Run -Step $stepId -State SKIPPED -Detail "absent on target" }
+            }
             "folder"   {
                 if (-not $s.ExistsOnTarget) {
+                    Write-JrsStep -Run $Run -Step $stepId -State RUNNING -Compensation @{ type = "delete"; uri = $s.Uri }
                     $f = [IO.Path]::GetTempFileName(); ('{"label":"' + (($s.Uri -split "/")[-1]) + '"}') | Set-Content $f -Encoding utf8
                     try { $r = Invoke-JrsPut -Jrs $To -Uri $s.Uri -ContentType "application/repository.folder+json" -JsonFile $f } finally { Remove-Item $f -ErrorAction SilentlyContinue }
+                    if ("$($r.Code)" -notmatch '^2\d\d$') { Write-JrsStep -Run $Run -Step $stepId -State FAILED -Detail "HTTP $($r.Code)" }
                     Assert-JrsOk -Response $r -Operation "PUT folder $($s.Uri)" | Out-Null
-                }
+                    Write-JrsStep -Run $Run -Step $stepId -State SUCCEEDED -Detail "HTTP $($r.Code)"
+                } else { Write-JrsStep -Run $Run -Step $stepId -State SKIPPED -Detail "exists" }
             }
             "control"  {
-                if ($s.ExistsOnTarget) { break }
-                if (-not $EnsureControls) { Write-Warning "control $($s.Uri) is absent on the target; pass -EnsureControls to create it"; break }
-                if ($s.Tile) { Invoke-EnsureControls -Jrs $To -Spec ([pscustomobject]@{ Controls = @($s.Tile) }) | Out-Null }
-                elseif ($s.Action -match '^CREATE by copying') { Copy-JrsInputControl $From $To $s.Uri }
-                else { Write-Warning "control $($s.Uri) exists on neither server; skipped" }
+                if ($s.ExistsOnTarget) { Write-JrsStep -Run $Run -Step $stepId -State SKIPPED -Detail "exists"; break }
+                if (-not $EnsureControls) { Write-Warning "control $($s.Uri) is absent on the target; pass -EnsureControls to create it"; Write-JrsStep -Run $Run -Step $stepId -State SKIPPED -Detail "absent; -EnsureControls not given"; break }
+                Write-JrsStep -Run $Run -Step $stepId -State RUNNING -Compensation @{ type = "delete"; uri = $s.Uri } -Detail "sub-resources (LOV/query/dataType) are left in place by the rollback"
+                try {
+                    if ($s.Tile) { Invoke-EnsureControls -Jrs $To -Spec ([pscustomobject]@{ Controls = @($s.Tile) }) | Out-Null }
+                    elseif ($s.Action -match '^CREATE by copying') { Copy-JrsInputControl $From $To $s.Uri }
+                    else { Write-Warning "control $($s.Uri) exists on neither server; skipped"; Write-JrsStep -Run $Run -Step $stepId -State SKIPPED -Detail "exists on neither server"; break }
+                } catch { Write-JrsStep -Run $Run -Step $stepId -State FAILED -Detail "$_"; throw }
+                Write-JrsStep -Run $Run -Step $stepId -State SUCCEEDED
             }
             "tile"     {
-                if ($s.Action.StartsWith("keep")) { break }
+                if ($s.Action.StartsWith("keep")) { Write-JrsStep -Run $Run -Step $stepId -State SKIPPED -Detail "jrxml identical"; break }
                 if ($s.Tile.Jrxml) {
                     $ds = $s.Tile.DataSourceUri
                     if (-not $ds) { $srcRu = Get-JrsResourceOrNull $From $s.Uri; if ($srcRu -and $srcRu.dataSource) { $ds = $srcRu.dataSource.dataSourceReference.uri } }
@@ -365,18 +402,26 @@ function Invoke-PromotePlan($Plan, $Manifests, $From, $To, [switch]$EnsureContro
                     $label = $s.Tile.Label
                     $srcRu2 = Get-JrsResourceOrNull $From $s.Uri
                     if ($srcRu2 -and $srcRu2.label) { $label = $srcRu2.label }
-                    $a = $toArgs + @{ Jrxml = $s.Tile.Jrxml; TargetUri = $s.Uri; Label = $label; Overwrite = $true }
+                    # deploy_report -Overwrite -Apply journals its own step (backup -> reimport / delete)
+                    $a = $toArgs + @{ Jrxml = $s.Tile.Jrxml; TargetUri = $s.Uri; Label = $label; Overwrite = $true; Apply = $true; NoBackup = [bool]$NoBackup }
                     if ($ds) { $a.DataSourceUri = $ds }
-                    if ($Backup -and $s.ExistsOnTarget) { $a.Backup = $true }
                     Invoke-ChildScript "deploy_report.ps1" $a | ForEach-Object { Write-Host "    $_" }
                 } else {
+                    $comp = $null; $irrev = $null
+                    if ($s.ExistsOnTarget) {
+                        if ($NoBackup) { $irrev = "-NoBackup" }
+                        else { $bk = Export-JrsBackup -Jrs $To -Uri $s.Uri; if ($bk) { $comp = @{ type = "reimport"; zip = $bk; uri = $s.Uri } } else { $irrev = "backup export failed" } }
+                    } else { $comp = @{ type = "delete"; uri = $s.Uri } }
+                    Write-JrsStep -Run $Run -Step $stepId -State RUNNING -Compensation $comp -Irreversible $irrev
                     $zip = Join-Path $WorkDir ("tile_" + ($s.Uri.TrimStart("/") -replace "[^0-9A-Za-z]", "_") + ".zip")
                     Invoke-ChildScript "export_resource.ps1" @{ Uri = $s.Uri; Out = $zip; ServerUrl = $From.ServerUrl; User = $From.User; Password = $From.Password } | ForEach-Object { Write-Host "    $_" }
                     try { Invoke-ChildScript "import_resource.ps1" ($toArgs + @{ Zip = $zip; Update = $true }) | ForEach-Object { Write-Host "    $_" } }
                     catch {
+                        Write-JrsStep -Run $Run -Step $stepId -State FAILED -Detail "$_"
                         if ("$_" -match 'import\.decode\.failed') { throw "import of $($s.Uri) failed with import.decode.failed (per-server export key). Put the tile's jrxml next to the manifest (or set dashlet 'jrxml' / manifest 'outDir') so it deploys via deploy_report.ps1 instead. Original: $_" }
                         throw
                     }
+                    Write-JrsStep -Run $Run -Step $stepId -State SUCCEEDED
                 }
             }
             "attach"   {
@@ -389,14 +434,24 @@ function Invoke-PromotePlan($Plan, $Manifests, $From, $To, [switch]$EnsureContro
                 if ($want.Count -gt 0) {
                     $have = @(Get-ReportControlUris (Get-JrsResourceOrNull $To $s.Uri))
                     $same = ($want.Count -eq $have.Count) -and -not @($want | Where-Object { $have -notcontains $_ })
-                    if ($same) { Write-Host "    controls already attached ($($have.Count), verified live)" }
-                    else { Set-JrsReportControls $To $s.Uri $want; Write-Host "    attached $($want.Count) control(s) (live had $($have.Count))" }
-                }
+                    if ($same) { Write-Host "    controls already attached ($($have.Count), verified live)"; Write-JrsStep -Run $Run -Step $stepId -State SKIPPED -Detail "already attached ($($have.Count))" }
+                    else {
+                        # the tile step's backup (when it ran) already covers this unit; a kept
+                        # tile gets its own backup here so the attach is reversible too
+                        $comp = $null; $irrev = $null
+                        if ($NoBackup) { $irrev = "-NoBackup" }
+                        else { $bk = Export-JrsBackup -Jrs $To -Uri $s.Uri; if ($bk) { $comp = @{ type = "reimport"; zip = $bk; uri = $s.Uri } } else { $irrev = "backup export failed" } }
+                        Write-JrsStep -Run $Run -Step $stepId -State RUNNING -Compensation $comp -Irreversible $irrev
+                        try { Set-JrsReportControls $To $s.Uri $want } catch { Write-JrsStep -Run $Run -Step $stepId -State FAILED -Detail "$_"; throw }
+                        Write-Host "    attached $($want.Count) control(s) (live had $($have.Count))"
+                        Write-JrsStep -Run $Run -Step $stepId -State SUCCEEDED -Detail "attached $($want.Count), live had $($have.Count)"
+                    }
+                } else { Write-JrsStep -Run $Run -Step $stepId -State SKIPPED -Detail "none to attach" }
             }
             "compose"  {
                 $mf = @($Manifests | Where-Object { $_.Path -eq $s.Manifest })[0]
-                $a = $toArgs + @{ Manifest = $s.Manifest; Replace = $true; WorkDir = (Join-Path $WorkDir ("dash_" + $mf.Name)) }
-                if ($Backup) { $a.Backup = $true }
+                # compose -Replace -Apply journals its own delete (backup -> reimport) and import steps
+                $a = $toArgs + @{ Manifest = $s.Manifest; Replace = $true; Apply = $true; NoBackup = [bool]$NoBackup; WorkDir = (Join-Path $WorkDir ("dash_" + $mf.Name)) }
                 if ($mf.NeedsAutoGrid) { $a.AutoGrid = $true }
                 Invoke-ChildScript "compose_dashboard.ps1" $a | ForEach-Object { if ($_ -is [string]) { Write-Host "    $_" } else { $_ } }
             }
@@ -405,22 +460,49 @@ function Invoke-PromotePlan($Plan, $Manifests, $From, $To, [switch]$EnsureContro
 }
 
 function Invoke-PromoteManifest {
+    # Plan mode (default, or -WhatIf) returns the annotated plan and issues GETs
+    # only. -Apply runs it under a journaled run; on failure the run is rolled
+    # back automatically (unless -NoRollback) and $script:PromoteExitCode is set
+    # to 3 (rolled back) or 4 (rollback incomplete) before the error is rethrown.
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Manifest, [Parameter(Mandatory)]$From, [Parameter(Mandatory)]$To,
-          [switch]$WhatIf, [switch]$EnsureControls, [switch]$Backup, [string]$WorkDir = "out/promote")
+          [switch]$Apply, [switch]$WhatIf, [switch]$EnsureControls, [switch]$Backup, [switch]$NoBackup, [switch]$NoRollback,
+          [string]$WorkDir = "out/promote")
+    if ($Apply -and $WhatIf) { throw "-Apply and -WhatIf are mutually exclusive" }
     $paths = Resolve-ManifestPaths $Manifest
     $mfs = @($paths | ForEach-Object { Read-DashboardManifest $_ })
     Write-Host "manifest mode: $($mfs.Count) dashboard(s), $((@($mfs | ForEach-Object { $_.Tiles }) | Select-Object -Unique -Property Uri).Count) distinct tile(s)"
     $steps = Get-PromotePlanOrder $mfs
     $plan = Get-PromotePlan $steps $From $To
     Write-PromotePlan $plan $From $To
-    if ($WhatIf) {
-        Write-Host "[whatif] plan only -- nothing was written to $($To.ServerUrl)"
+    if (-not $Apply) {
+        Write-Host "[plan] nothing was written to $($To.ServerUrl); pass -Apply to promote (backups + run journal; undo with recover_run.ps1)"
         return $plan
     }
-    Invoke-PromotePlan $plan $mfs $From $To -EnsureControls:$EnsureControls -Backup:$Backup -WorkDir $WorkDir
-    Write-Host "OK: promoted $($mfs.Count) dashboard(s) -> $($To.ServerUrl)"
-    return $plan
+    $script:PromoteExitCode = 0
+    $run = New-JrsRun -Operation "promote" -Target $To -Mode apply -Plan $plan -Arguments @{ Manifest = $Manifest; From = $From.ServerUrl; EnsureControls = [bool]$EnsureControls; NoBackup = [bool]$NoBackup }
+    try {
+        Invoke-PromotePlan $plan $mfs $From $To -EnsureControls:$EnsureControls -NoBackup:$NoBackup -WorkDir $WorkDir -Run $run
+        Complete-JrsRun -Run $run -Status SUCCEEDED
+        Write-Host "OK: promoted $($mfs.Count) dashboard(s) -> $($To.ServerUrl) (run $($run.RunId))"
+        return $plan
+    } catch {
+        $err = "$_"
+        Write-Host ""
+        Write-Host "FAILED: $err"
+        if ($NoRollback) {
+            Complete-JrsRun -Run $run -Status FAILED -ExitCode 4 -Error $err
+            $script:PromoteExitCode = 4
+            Write-Host "run $($run.RunId) left as FAILED (-NoRollback); undo with: recover_run.ps1 -RunId $($run.RunId) -Rollback -Apply"
+            throw
+        }
+        Complete-JrsRun -Run $run -Status FAILED -ExitCode 4 -Error $err
+        Write-Host "rolling back run $($run.RunId) (the failing step first, then every succeeded step, newest first) ..."
+        $rb = Invoke-JrsRollback -Run (Get-JrsRun -RunId $run.RunId) -Jrs $To -Apply
+        $script:PromoteExitCode = $rb.ExitCode
+        if ($rb.Status -ne "ROLLED_BACK") { Write-Host "MANUAL ACTION REQUIRED: recover_run.ps1 -RunId $($run.RunId) lists what is left" }
+        throw
+    }
 }
 
 # =============================================================================
@@ -429,34 +511,79 @@ function Invoke-PromoteManifest {
 if ($MyInvocation.InvocationName -ne ".") {
     if (-not $Uri -and -not $Manifest) { throw "pass -Uri <repository uri> or -Manifest <file|dir|glob>" }
     if ($Uri -and $Manifest) { throw "-Uri and -Manifest are mutually exclusive" }
+    if ($Apply -and $WhatIf) { throw "-Apply and -WhatIf are mutually exclusive (-WhatIf is the default plan mode)" }
 
-    # Resolve the TARGET up front so a bad profile name or missing credential fails
-    # before the export runs, and so the summary line can print the real URL.
-    if (-not $ToEnv -and -not ($ToServerUrl -and $ToUser -and $ToPassword)) {
-        throw "Target server required: pass -ToEnv <name> (a jrs.config.json `"environments`" profile) or the full -ToServerUrl/-ToUser/-ToPassword triple"
-    }
-    $to = Resolve-JrsConfig -ServerUrl $ToServerUrl -User $ToUser -Password $ToPassword -Env $ToEnv
-    $from = Resolve-JrsConfig -ServerUrl $FromServerUrl -User $FromUser -Password $FromPassword -Env $FromEnv
-    if ($to.ServerUrl -eq $from.ServerUrl) {
-        throw "source and target are the same server ($($to.ServerUrl)) -- nothing to promote"
-    }
+    # Plan mode is enforced BELOW this script by the write guard in _jrs_common.ps1
+    # (Invoke-JrsPut/Delete/Rest refuse), for this process and every child script,
+    # so a clobbered switch (G60) can no longer turn a plan into writes.
+    $prevMode = Enter-JrsPlanMode -Apply:$Apply
+    $script:PromoteExitCode = 0
+    try {
+        # Resolve the TARGET up front so a bad profile name or missing credential fails
+        # before the export runs, and so the summary line can print the real URL.
+        if (-not $ToEnv -and -not ($ToServerUrl -and $ToUser -and $ToPassword)) {
+            throw "Target server required: pass -ToEnv <name> (a jrs.config.json `"environments`" profile) or the full -ToServerUrl/-ToUser/-ToPassword triple"
+        }
+        $to = Resolve-JrsConfig -ServerUrl $ToServerUrl -User $ToUser -Password $ToPassword -Env $ToEnv
+        $from = Resolve-JrsConfig -ServerUrl $FromServerUrl -User $FromUser -Password $FromPassword -Env $FromEnv
+        if ($to.ServerUrl -eq $from.ServerUrl) {
+            throw "source and target are the same server ($($to.ServerUrl)) -- nothing to promote"
+        }
+        Write-Host "mode: $(if ($Apply) { 'APPLY' } else { 'plan (pass -Apply to write)' })  target: $($to.ServerUrl)$(if ($to.Env) { " [env $($to.Env)]" })$(if ($to.IsProd) { '  ** PROD: needs JRS_ALLOW_PROD_WRITE=1 **' })"
+        if ($Apply) { Assert-JrsWriteAllowed -Jrs $to -Method APPLY -Url $to.ServerUrl }   # precheck (exit 2): refuse an unconfirmed prod target before any work
 
-    if ($Manifest) {
-        Invoke-PromoteManifest -Manifest $Manifest -From $from -To $to -WhatIf:$WhatIf -EnsureControls:$EnsureControls -Backup:$Backup -WorkDir $WorkDir
-    } else {
-        if (-not $Uri.StartsWith("/")) { $Uri = "/$Uri" }
-        $leaf = ($Uri -split "/")[-1]
-        if (-not $Archive) { $Archive = "backups/promote_$leaf.zip" }
-        if ($WhatIf) { Write-Host "[whatif] would export $Uri from $($from.ServerUrl) and import it into $($to.ServerUrl) (archive: $Archive)"; return }
+        if ($Manifest) {
+            Invoke-PromoteManifest -Manifest $Manifest -From $from -To $to -Apply:$Apply -WhatIf:$WhatIf -EnsureControls:$EnsureControls `
+                -NoBackup:$NoBackup -NoRollback:$NoRollback -WorkDir $WorkDir | Out-Null
+        } else {
+            if (-not $Uri.StartsWith("/")) { $Uri = "/$Uri" }
+            $leaf = ($Uri -split "/")[-1]
+            if (-not $Archive) { $Archive = "backups/promote_$leaf.zip" }
+            $exists = ("$((Invoke-JrsGet -Jrs $to -Uri $Uri).Code)" -match '^2\d\d$')
+            $bkWord = if ($NoBackup) { "no backup (irreversible)" } else { "backup the target copy, then" }
+            $action = if ($exists) { "$bkWord IMPORT over it (update=$Update)" } else { "IMPORT [new]" }
+            Write-Host ""
+            Write-Host "PROMOTION PLAN  $Uri  $($from.ServerUrl)  ->  $($to.ServerUrl) (exists on target: $exists)"
+            Write-Host "  [  1] export $Uri from the source -> $Archive"
+            Write-Host "  [  2] $action"
+            Write-Host ""
+            if (-not $Apply) { Write-Host "[plan] nothing was written to $($to.ServerUrl); pass -Apply to promote"; return }
 
-        Write-Host "=== export $Uri from $($from.ServerUrl) ==="
-        & (Join-Path $PSScriptRoot "export_resource.ps1") -Uri $Uri -Out $Archive `
-            -ServerUrl $from.ServerUrl -User $from.User -Password $from.Password
+            $run = New-JrsRun -Operation "promote-uri" -Target $to -Mode apply -Plan @([pscustomobject]@{ Order = 1; Kind = "import"; Uri = $Uri; Action = $action }) -Arguments @{ Uri = $Uri; From = $from.ServerUrl; Update = $Update }
+            try {
+                Write-Host "=== export $Uri from $($from.ServerUrl) ==="
+                & (Join-Path $PSScriptRoot "export_resource.ps1") -Uri $Uri -Out $Archive `
+                    -ServerUrl $from.ServerUrl -User $from.User -Password $from.Password
 
-        Write-Host "=== import into target $($to.ServerUrl) ==="
-        & (Join-Path $PSScriptRoot "import_resource.ps1") -Zip $Archive -Update $Update `
-            -ServerUrl $to.ServerUrl -User $to.User -Password $to.Password
-
-        Write-Host "OK: promoted $Uri -> $($to.ServerUrl) (archive: $Archive)"
-    }
+                $stepId = "promote.import:$Uri"; $comp = $null; $irrev = $null
+                if ($exists) {
+                    if ($NoBackup) { $irrev = "-NoBackup" }
+                    else { $bk = Export-JrsBackup -Jrs $to -Uri $Uri; if ($bk) { $comp = @{ type = "reimport"; zip = $bk; uri = $Uri }; Write-Host "backup $Uri -> $bk" } else { $irrev = "backup export failed" } }
+                } else { $comp = @{ type = "delete"; uri = $Uri } }
+                Write-JrsStep -Run $run -Step $stepId -State RUNNING -Compensation $comp -Irreversible $irrev
+                Write-Host "=== import into target $($to.ServerUrl) ==="
+                try {
+                    & (Join-Path $PSScriptRoot "import_resource.ps1") -Zip $Archive -Update $Update `
+                        -ServerUrl $to.ServerUrl -User $to.User -Password $to.Password
+                } catch { Write-JrsStep -Run $run -Step $stepId -State FAILED -Detail "$_"; throw }
+                Write-JrsStep -Run $run -Step $stepId -State SUCCEEDED
+                Complete-JrsRun -Run $run -Status SUCCEEDED
+                Write-Host "OK: promoted $Uri -> $($to.ServerUrl) (archive: $Archive; run $($run.RunId))"
+            } catch {
+                $err = "$_"
+                Complete-JrsRun -Run $run -Status FAILED -ExitCode 4 -Error $err
+                Write-Host "FAILED: $err"
+                if ($NoRollback) { $script:PromoteExitCode = 4; Write-Host "undo with: recover_run.ps1 -RunId $($run.RunId) -Rollback -Apply"; throw }
+                $rb = Invoke-JrsRollback -Run (Get-JrsRun -RunId $run.RunId) -Jrs $to -Apply
+                $script:PromoteExitCode = $rb.ExitCode
+                throw
+            }
+        }
+    } catch {
+        # exit codes follow jrsctl: 2 = nothing mutated (precheck/plan), 3 = rolled back, 4 = rollback incomplete
+        $code = if ($script:PromoteExitCode) { $script:PromoteExitCode } else { 2 }
+        Write-Host "promote.ps1: $_"
+        Write-Host "exit $code ($(switch ($code) { 2 { 'failed before any write' } 3 { 'failed; rolled back cleanly' } 4 { 'failed; rollback incomplete -- manual action required' } default { 'error' } }))"
+        exit $code
+    } finally { Restore-JrsPlanMode $prevMode }
 }

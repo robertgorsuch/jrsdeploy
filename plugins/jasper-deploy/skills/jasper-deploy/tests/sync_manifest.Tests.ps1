@@ -3,6 +3,10 @@
 # an archive, synced back into the manifest, and generated again must yield the
 # SAME companion files (layout / components.data / wiring.data). No server.
 
+# A caller such as smoke_test.ps1 runs Pester under $ErrorActionPreference = 'Stop';
+# PS 5.1 then turns a child's stderr (curl: (7) ..., python WARN: ...) into a terminating
+# error. These tests expect that stderr, so pin the preference for this file.
+$ErrorActionPreference = 'Continue'
 . "$PSScriptRoot/../scripts/_jrs_common.ps1"      # Get-JrsPython
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 

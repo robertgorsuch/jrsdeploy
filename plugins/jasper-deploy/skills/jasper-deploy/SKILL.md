@@ -86,13 +86,15 @@ that area** — the deep detail lives there, not here.
 | Diagnostic log collector (support bundle for a failing report) | `manage_diagnostic.ps1` | `references/admin-and-scheduling.md` |
 | Compose a dashboard from a manifest | `build_dashlets.ps1 -Compose` (descriptor synthesis: `gen_dashboard.py`) | `references/dashboards.md` |
 | Verify a deployed dashboard suite without a browser (exists / render / server-vs-git jrxml byte-diff / controls vs manifest `filters`; read-only, exit 1 on FAIL) | `verify_suite.ps1 -Manifest <path|dir|glob> -Env stage|prod [-Render] [-ByteDiff]` | `references/ci-smoke.md` |
-| Promote a whole dashboard suite from manifests (teardown -> controls -> tiles -> attach -> recompose; `-WhatIf` prints the plan, writes nothing) | `promote.ps1 -Manifest` | `references/dashboards.md` |
+| Promote a whole dashboard suite from manifests (teardown -> controls -> tiles -> attach -> recompose). **Plans by default; `-Apply` writes** under a journaled run with backups; a failed apply rolls itself back (exit 3/4) | `promote.ps1 -Manifest [-Apply]` | `references/dashboards.md` |
 | Ensure input controls declaratively from a JSON spec / manifest `controls` key (idempotent, `-WhatIf`) | `ensure_controls.ps1` (+ `fixtures/controls.example.json`) | `references/dashboards.md` |
-| Recompose = replace (one delete+import transaction, `-Backup`, result object) | `compose_dashboard.ps1 -Replace` | `references/dashboard-model.md` |
+| Recompose = replace (one delete+import transaction; backup by default; **plans without `-Apply`**; result object) | `compose_dashboard.ps1 -Replace [-Apply]` | `references/dashboard-model.md` |
+| List / show / roll back a journaled run (promote, compose, teardown, deploy -Overwrite): replays the `reimport` / `delete` compensations newest-first | `recover_run.ps1 -List`, `-RunId <id\|latest> [-Rollback [-Apply]]` | `references/ci-smoke.md` |
+| Prove a plan-mode run writes nothing: record a suite's GETs from STAGE, replay them through the mock server (tests/mock_jrs.py) and assert zero PUT/POST/DELETE (tests/harness.Tests.ps1) | `record_server.ps1 -Manifest -Env stage` | `references/ci-smoke.md` |
 | Lint a dashboard manifest (.json): `filterFloating` pinned, dashlets under `folder`, duplicate names | `lint_jrxml.ps1 -Manifest` | `references/manifest.schema.json` |
 | Scaffold SQL for an Actian X100 datasource (refuses ordered/correlated aggregates, `;` in comments) | `scaffold_jrxml.py --dialect x100 [--check-only]` | `references/x100-sql.md` |
 | Re-sync a manifest IN PLACE from a designer-edited live dashboard (presentation keys, filter docking, diff, `-WhatIf`) | `sync_manifest_from_dashboard.ps1 -Manifest` (+ `sync_manifest.py --merge`) | `references/dashboard-model.md` |
-| Export/import/promote/teardown a dashboard or resource | `export_resource.ps1`, `import_resource.ps1`, `promote.ps1`, `teardown_dashboard.ps1` | `references/dashboards.md` |
+| Export/import/promote/teardown a dashboard or resource (teardown plans without `-Apply`; backs up before every delete) | `export_resource.ps1`, `import_resource.ps1`, `promote.ps1`, `teardown_dashboard.ps1 [-Apply]` | `references/dashboards.md` |
 | Promote between named environments (STAGE→PROD, `-FromEnv`/`-ToEnv`) | `promote.ps1` | `references/security-and-config.md` |
 | Domain (semantic layer) — single-table or multi-table with joins | `scaffold_domain_schema.py` + `create_domain.ps1` | `references/data-and-semantic-layer.md` |
 | Hand-author/debug Domain internals (schema XML, joins, derived tables, DomEL calc fields/filters, security file, locale bundles) | — | `references/domains-deep.md` |
@@ -182,8 +184,22 @@ handling, and designer-authored dashboards are in `references/dashboards.md`.
   showTickMarks/showTickLabels; **`area` (`JRDesignAreaPlot`) accepts NEITHER** —
   bare `<plot/>` only. Valid names per construct: `references/jr7-valid-elements.md`;
   symptom→fix index: `references/gotchas.md`. When a JRS call still fails, `Assert-JrsOk`
-  appends a `gotchas.md` pointer (via `Get-GotchaHint`). Pass `-Backup` to
-  `deploy_report.ps1`/`compose_dashboard.ps1` to export the current version first.
+  appends a `gotchas.md` pointer (via `Get-GotchaHint`). `deploy_report.ps1 -Overwrite`
+  and `compose_dashboard.ps1` export the current version first by default (`-NoBackup`
+  to skip; the step is then irreversible for `recover_run.ps1`).
+- **Safety model (1.3.0, ported from jrsctl).** `promote.ps1`, `compose_dashboard.ps1`,
+  `teardown_dashboard.ps1` and `deploy_report.ps1 -Overwrite` **plan by default and
+  write only with `-Apply`** (`-WhatIf`/`-DryRun` remain as names for the default).
+  The gate is enforced *below* the scripts: `Invoke-JrsPut`/`Invoke-JrsDelete`/non-GET
+  `Invoke-JrsRest` throw `PLAN MODE` while a plan runs (G64), so a clobbered switch
+  can only fail safe. Any write to a `prod*` profile (or its URL) throws `PROD GUARD`
+  unless a human sets `$env:JRS_ALLOW_PROD_WRITE = '1'` for that one run (G65).
+  Every `-Apply` run is journaled under `out/runs/<runId>` with a `reimport`/`delete`
+  compensation per mutating step; `promote.ps1 -Apply` rolls itself back on failure
+  (exit 3 = rolled back, 4 = incomplete, 2 = nothing mutated) and
+  `recover_run.ps1 -RunId <id> -Rollback -Apply` undoes any run later. Callers that
+  ARE the deploy command (`build_dashlets.ps1`, `reconcile.ps1 -Apply`,
+  `smoke_test.ps1`, the wizard) pass `-Apply` through.
 - **Report queries must begin with `SELECT`.** A leading `WITH` (CTE) is rejected
   by the JRS SQL security validator at fill time (`JSSecurityException`) — a
   generic `400` that a clean local compile does NOT catch. `deploy_report.ps1`
@@ -206,8 +222,9 @@ handling, and designer-authored dashboards are in `references/dashboards.md`.
   that block in YOUR scope and resets `$WhatIf`, `$Env`, ... to defaults (this is
   how a `promote.ps1 -WhatIf` wrote to PROD on 2026-08-28, gotcha G60). Shared
   functions live only in param-less files: `_jrs_common.ps1`,
-  `_controls_common.ps1` (input-control spec/ensure helpers).
-  `tests/dotsource.Tests.ps1` enforces this.
+  `_controls_common.ps1` (input-control spec/ensure helpers) and `_jrs_run.ps1`
+  (run journal, rollback plan/executor, `Export-JrsBackup`; dot-sourced by
+  `_jrs_common.ps1`). `tests/dotsource.Tests.ps1` enforces this.
 - **Existence checks:** `Invoke-JrsGet` returns `.Code` and never throws on 404;
   use `Test-JrsResource` / `Assert-JrsResource` (`_jrs_common.ps1`). Deploy scripts
   now emit a result object on the pipeline (Write-Host lines are NOT captured by

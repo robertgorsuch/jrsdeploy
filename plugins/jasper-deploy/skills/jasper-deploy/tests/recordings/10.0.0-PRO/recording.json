@@ -1,0 +1,12 @@
+{
+    "provenance":  "recorded",
+    "version":  "10.0.0",
+    "edition":  "PRO",
+    "recordedAt":  "2026-09-29T00:06:19Z",
+    "env":  "stage",
+    "manifests":  [
+                      "harness_dashboard.json"
+                  ],
+    "mappings":  7,
+    "note":  "GET exchanges only; creationDate/updateDate and credential-shaped keys removed; replay with tests/mock_jrs.py"
+}

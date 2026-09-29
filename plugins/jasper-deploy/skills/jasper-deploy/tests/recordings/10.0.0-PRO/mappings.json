@@ -1,0 +1,232 @@
+[
+    {
+        "method":  "GET",
+        "path":  "/rest_v2/serverInfo",
+        "status":  200,
+        "contentType":  "application/json",
+        "body":  {
+                     "dateFormatPattern":  "yyyy-MM-dd",
+                     "datetimeFormatPattern":  "yyyy-MM-dd\u0027T\u0027HH:mm:ss",
+                     "version":  "10.0.0",
+                     "edition":  "PRO",
+                     "editionName":  "Enterprise",
+                     "licenseType":  "Commercial",
+                     "build":  "20260730_0457",
+                     "expiration":  "2026-12-31T00:00:00",
+                     "features":  "ANA AUD MT FUSION DB AHD DS AL RB DV VJ WL CL "
+                 }
+    },
+    {
+        "method":  "GET",
+        "path":  "/rest_v2/resources/reports/_smoke/harness",
+        "status":  200,
+        "contentType":  "application/json",
+        "body":  {
+                     "version":  0,
+                     "permissionMask":  1,
+                     "label":  "harness",
+                     "uri":  "/reports/_smoke/harness"
+                 }
+    },
+    {
+        "method":  "GET",
+        "path":  "/rest_v2/resources/reports/_smoke/harness/harness_dash",
+        "status":  200,
+        "contentType":  "application/json",
+        "body":  {
+                     "version":  0,
+                     "permissionMask":  1,
+                     "label":  "Harness Dashboard",
+                     "uri":  "/reports/_smoke/harness/harness_dash",
+                     "foundations":  [
+                                         {
+                                             "id":  "default",
+                                             "layout":  "layout",
+                                             "wiring":  "wiring",
+                                             "components":  "components"
+                                         }
+                                     ],
+                     "resources":  [
+                                       {
+                                           "name":  "wiring",
+                                           "type":  "wiring",
+                                           "resource":  {
+                                                            "resourceReference":  {
+                                                                                      "uri":  "/reports/_smoke/harness/harness_dash_files/wiring",
+                                                                                      "version":  0
+                                                                                  }
+                                                        }
+                                       },
+                                       {
+                                           "name":  "layout",
+                                           "type":  "layout",
+                                           "resource":  {
+                                                            "resourceReference":  {
+                                                                                      "uri":  "/reports/_smoke/harness/harness_dash_files/layout",
+                                                                                      "version":  0
+                                                                                  }
+                                                        }
+                                       },
+                                       {
+                                           "name":  "components",
+                                           "type":  "components",
+                                           "resource":  {
+                                                            "resourceReference":  {
+                                                                                      "uri":  "/reports/_smoke/harness/harness_dash_files/components",
+                                                                                      "version":  0
+                                                                                  }
+                                                        }
+                                       },
+                                       {
+                                           "name":  "/reports/_smoke/harness/tile_a",
+                                           "type":  "reportUnit",
+                                           "resource":  {
+                                                            "resourceReference":  {
+                                                                                      "uri":  "/reports/_smoke/harness/tile_a",
+                                                                                      "version":  0
+                                                                                  }
+                                                        }
+                                       },
+                                       {
+                                           "name":  "/reports/_smoke/harness/tile_b",
+                                           "type":  "reportUnit",
+                                           "resource":  {
+                                                            "resourceReference":  {
+                                                                                      "uri":  "/reports/_smoke/harness/tile_b",
+                                                                                      "version":  0
+                                                                                  }
+                                                        }
+                                       }
+                                   ],
+                     "defaultFoundation":  "default"
+                 }
+    },
+    {
+        "method":  "GET",
+        "path":  "/rest_v2/resources/reports/_smoke/harness/tile_a",
+        "status":  200,
+        "contentType":  "application/json",
+        "body":  {
+                     "version":  0,
+                     "permissionMask":  1,
+                     "label":  "Tile A",
+                     "description":  "",
+                     "uri":  "/reports/_smoke/harness/tile_a",
+                     "dataSource":  {
+                                        "dataSourceReference":  {
+                                                                    "uri":  "/public/Samples/Data_Sources/FoodmartDataSource",
+                                                                    "version":  0
+                                                                }
+                                    },
+                     "jrxml":  {
+                                   "jrxmlFileReference":  {
+                                                              "uri":  "/reports/_smoke/harness/tile_a_files/Tile_A_main_jrxml",
+                                                              "version":  0
+                                                          }
+                               },
+                     "alwaysPromptControls":  false,
+                     "controlsLayout":  "popupScreen"
+                 }
+    },
+    {
+        "method":  "GET",
+        "path":  "/rest_v2/resources/reports/_smoke/harness/tile_a?expanded=true",
+        "status":  200,
+        "contentType":  "application/json",
+        "body":  {
+                     "version":  0,
+                     "permissionMask":  1,
+                     "label":  "Tile A",
+                     "description":  "",
+                     "uri":  "/reports/_smoke/harness/tile_a",
+                     "dataSource":  {
+                                        "jdbcDataSource":  {
+                                                               "version":  1,
+                                                               "permissionMask":  1,
+                                                               "label":  "Foodmart Data Source",
+                                                               "description":  "Foodmart Data Source",
+                                                               "uri":  "/public/Samples/Data_Sources/FoodmartDataSource",
+                                                               "driverClass":  "org.postgresql.Driver",
+                                                               "username":  "postgres",
+                                                               "connectionUrl":  "jdbc:postgresql://127.0.01:5432/foodmart",
+                                                               "timezone":  ""
+                                                           }
+                                    },
+                     "jrxml":  {
+                                   "jrxmlFile":  {
+                                                     "version":  0,
+                                                     "permissionMask":  1,
+                                                     "label":  "Tile A main jrxml",
+                                                     "uri":  "/reports/_smoke/harness/tile_a_files/Tile_A_main_jrxml",
+                                                     "type":  "jrxml"
+                                                 }
+                               },
+                     "alwaysPromptControls":  false,
+                     "controlsLayout":  "popupScreen"
+                 }
+    },
+    {
+        "method":  "GET",
+        "path":  "/rest_v2/resources/reports/_smoke/harness/tile_b",
+        "status":  200,
+        "contentType":  "application/json",
+        "body":  {
+                     "version":  0,
+                     "permissionMask":  1,
+                     "label":  "Tile B",
+                     "description":  "",
+                     "uri":  "/reports/_smoke/harness/tile_b",
+                     "dataSource":  {
+                                        "dataSourceReference":  {
+                                                                    "uri":  "/public/Samples/Data_Sources/FoodmartDataSource",
+                                                                    "version":  0
+                                                                }
+                                    },
+                     "jrxml":  {
+                                   "jrxmlFileReference":  {
+                                                              "uri":  "/reports/_smoke/harness/tile_b_files/Tile_B_main_jrxml",
+                                                              "version":  0
+                                                          }
+                               },
+                     "alwaysPromptControls":  false,
+                     "controlsLayout":  "popupScreen"
+                 }
+    },
+    {
+        "method":  "GET",
+        "path":  "/rest_v2/resources/reports/_smoke/harness/tile_b?expanded=true",
+        "status":  200,
+        "contentType":  "application/json",
+        "body":  {
+                     "version":  0,
+                     "permissionMask":  1,
+                     "label":  "Tile B",
+                     "description":  "",
+                     "uri":  "/reports/_smoke/harness/tile_b",
+                     "dataSource":  {
+                                        "jdbcDataSource":  {
+                                                               "version":  1,
+                                                               "permissionMask":  1,
+                                                               "label":  "Foodmart Data Source",
+                                                               "description":  "Foodmart Data Source",
+                                                               "uri":  "/public/Samples/Data_Sources/FoodmartDataSource",
+                                                               "driverClass":  "org.postgresql.Driver",
+                                                               "username":  "postgres",
+                                                               "connectionUrl":  "jdbc:postgresql://127.0.01:5432/foodmart",
+                                                               "timezone":  ""
+                                                           }
+                                    },
+                     "jrxml":  {
+                                   "jrxmlFile":  {
+                                                     "version":  0,
+                                                     "permissionMask":  1,
+                                                     "label":  "Tile B main jrxml",
+                                                     "uri":  "/reports/_smoke/harness/tile_b_files/Tile_B_main_jrxml",
+                                                     "type":  "jrxml"
+                                                 }
+                               },
+                     "alwaysPromptControls":  false,
+                     "controlsLayout":  "popupScreen"
+                 }
+    }
+]

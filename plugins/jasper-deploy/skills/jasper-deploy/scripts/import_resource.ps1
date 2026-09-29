@@ -46,10 +46,12 @@ $base = "$($jrs.ServerUrl)/rest_v2/import"
 $q = "?update=$($Update.ToString().ToLower())"
 
 # --- post the archive (multipart) ---------------------------------------------
-$resp = & (Get-JrsCurl) -s -S -u $auth -X POST -H "Accept: application/json" `
-    -F "file=@$zipFull;type=application/zip" "$base$q"
-$id = ($resp | ConvertFrom-Json).id
-if (-not $id) { throw "import request failed: $resp" }
+# Through the shared helper so the write guard applies: an import is a
+# repository write and is refused in plan mode / on an unconfirmed prod target.
+$r = Invoke-JrsRest -Jrs $jrs -Method POST -Path "/rest_v2/import$q" -FormFile $zipFull
+$resp = $r.Body
+$id = try { ($resp | ConvertFrom-Json).id } catch { $null }
+if (-not $id) { throw "import request failed (HTTP $($r.Code)): $resp" }
 Write-Host "import id: $id"
 
 # --- poll state ---------------------------------------------------------------

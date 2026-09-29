@@ -57,8 +57,11 @@ param(
     [switch]$Overwrite,
     [switch]$SkipSqlLint,       # bypass the SELECT-first / leading-WITH guard
     [switch]$SkipLint,          # bypass the lint_jrxml.ps1 pre-deploy gate
-    [switch]$Backup,            # before an -Overwrite, export the current version first (rollback safety)
-    [string]$BackupDir,         # where -Backup writes the archive (default: skill out\backups)
+    [switch]$Apply,             # -Overwrite PLANS BY DEFAULT (1.3.0): pass -Apply to actually overwrite. A plain
+                                # create (no -Overwrite) is not gated.
+    [switch]$Backup,            # accepted for compatibility: an -Overwrite of an existing unit backs up by default
+    [switch]$NoBackup,          # skip that backup (the overwrite is then journaled as irreversible)
+    [string]$BackupDir,         # where the backup archive goes (default: skill out\backups)
     [string[]]$Control,         # input controls: "param:kind[:label[:extra]]"
                                 #   kind=select|multiselect  extra="Food;Drink" (or lab=val;..)
                                 #   kind=single              extra=text|number|date|datetime
@@ -77,6 +80,12 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_jrs_common.ps1")
 
+# -Overwrite without -Apply runs the whole script in plan mode: the write guard
+# in _jrs_common.ps1 refuses any PUT/DELETE below (and in child scripts) even if
+# a later edit forgets the early return. Restored in the finally at the end.
+$prevMode = Enter-JrsPlanMode -Apply:($Apply -or -not $Overwrite)
+$run = $null
+try {
 if (-not (Test-Path $Jrxml)) { throw "jrxml not found: $Jrxml" }
 $jrxmlFull = (Resolve-Path $Jrxml).Path
 
@@ -169,25 +178,34 @@ if ($ResourceFiles) {
 # dashboard down / recompose with -Replace first (promote.ps1 -Manifest orders
 # this for you).
 
-# --- optional rollback safety: export the current version before overwriting ---
-if ($Backup -and $Overwrite) {
-    if ((Invoke-JrsGet -Jrs $jrs -Uri $TargetUri).Code -match '^2\d\d$') {
-        $exporter = Join-Path $PSScriptRoot "export_resource.ps1"
-        if (-not $BackupDir) { $BackupDir = Join-Path $PSScriptRoot "../out/backups" }
-        New-Item -ItemType Directory -Force $BackupDir | Out-Null
-        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-        $bkName = ($TargetUri.TrimStart("/") -replace "[^0-9A-Za-z]", "_") + "-$stamp.zip"
-        $bkPath = Join-Path $BackupDir $bkName
-        $cred = @{}
-        if ($ServerUrl) { $cred.ServerUrl = $ServerUrl }
-        if ($User)      { $cred.User = $User }
-        if ($Password)  { $cred.Password = $Password }
-        if ($Env)       { $cred.Env = $Env }
-        try {
-            & $exporter -Uri $TargetUri -Out $bkPath @cred *>$null
-            if (Test-Path $bkPath) { Write-Host "  backup: $TargetUri -> $bkPath" }
-        } catch { Write-Warning "backup of $TargetUri failed (continuing): $_" }
+# --- -Overwrite: plan gate, default backup, run journal ----------------------
+$deployStep = "deploy:$TargetUri"; $deployComp = $null; $deployIrrev = $null
+if ($Overwrite) {
+    $exists = ("$((Invoke-JrsGet -Jrs $jrs -Uri $TargetUri).Code)" -match '^2\d\d$')
+    $bkWord = if ($NoBackup) { "no backup (irreversible)" } else { "backup then" }
+    $action = if ($exists) { "$bkWord OVERWRITE (re-creates the unit at version 0; live input controls carried over)" } else { "CREATE (absent on target)" }
+    $plan = @([pscustomobject]@{ Order = 1; Kind = "deploy"; Uri = $TargetUri; Action = $action })
+    Write-Host ""
+    Write-Host "DEPLOY PLAN  $TargetUri on $($jrs.ServerUrl)$(if ($jrs.Env) { " [env $($jrs.Env)]" }) (exists on target: $exists)"
+    Write-Host ("  [  1] {0,-52} {1}" -f $TargetUri, $action)
+    Write-Host ""
+    if (-not $Apply) {
+        Write-Host "[plan] nothing was written to $($jrs.ServerUrl); pass -Apply to overwrite"
+        Write-Output (New-JrsDeployResult -Uri $TargetUri -Code "PLAN" -Status PLAN -ControlsAttached 0 -Message "plan only: $action")
+        return
     }
+    Assert-JrsWriteAllowed -Jrs $jrs -Method APPLY -Url $jrs.ServerUrl   # precheck: refuse an unconfirmed prod target BEFORE any backup/export runs
+    $run = New-JrsRun -Operation "deploy" -Target $jrs -Mode apply -Plan $plan -Arguments @{ Jrxml = $Jrxml; TargetUri = $TargetUri; Overwrite = $true; NoBackup = [bool]$NoBackup }
+    if ($exists) {
+        # rollback safety: the pre-overwrite export is the step's 'reimport' compensation
+        if ($NoBackup) { $deployIrrev = "-NoBackup" }
+        else {
+            $bkPath = Export-JrsBackup -Jrs $jrs -Uri $TargetUri -BackupDir $BackupDir
+            if ($bkPath) { Write-Host "  backup: $TargetUri -> $bkPath"; $deployComp = @{ type = "reimport"; zip = $bkPath; uri = $TargetUri } }
+            else { $deployIrrev = "backup export failed" }
+        }
+    } else { $deployComp = @{ type = "delete"; uri = $TargetUri } }
+    Write-JrsStep -Run $run -Step $deployStep -State RUNNING -Compensation $deployComp -Irreversible $deployIrrev
 }
 
 # --- -Overwrite preserves the existing input-control attachments ---------------
@@ -241,7 +259,9 @@ if ("$($r.Code)" -notmatch '^2\d\d$' -and "$($r.Body)" -match 'resource\.in\.use
            "redeploy the tile, recompose) -- or promote.ps1 -Manifest, which orders teardown -> tiles -> compose. " +
            "See references/gotchas.md (G21).")
 }
+if ($run -and "$($r.Code)" -notmatch '^2\d\d$') { Write-JrsStep -Run $run -Step $deployStep -State FAILED -Detail "HTTP $($r.Code)" }
 Assert-JrsOk -Response $r -Operation "deploy of $TargetUri failed" | Out-Null
+if ($run) { Write-JrsStep -Run $run -Step $deployStep -State SUCCEEDED -Detail "HTTP $($r.Code)" }
 Write-Host "OK ($($r.Code)): deployed $TargetUri"
 if ($r.Body) { Write-Host $r.Body }
 $deployCode = "$($r.Code)"
@@ -350,7 +370,16 @@ if ($Control -or $QueryControl -or $QueryMultiControl) {
 }
 
 # --- pipeline result (the only thing this script writes to the output stream) --
+if ($run) { Complete-JrsRun -Run $run -Status SUCCEEDED }
 $msg = "deployed $TargetUri (HTTP $deployCode)"
 if ($controlsAttached -gt 0) { $msg += ", $controlsAttached input control(s) attached" }
+if ($run -and $run.RunId -and -not $run.Nested) { $msg += " [run $($run.RunId)]" }
 Write-Output (New-JrsDeployResult -Uri $TargetUri -Code $deployCode -Status OK `
     -ControlsAttached $controlsAttached -Message $msg)
+} catch {
+    if ($run -and -not $run.Nested) {
+        try { Complete-JrsRun -Run $run -Status FAILED -ExitCode 4 -Error "$_" } catch { }
+        Write-Host "FAILED (run $($run.RunId)); undo what was done with: recover_run.ps1 -RunId $($run.RunId) -Rollback -Apply"
+    }
+    throw
+} finally { Restore-JrsPlanMode $prevMode }
