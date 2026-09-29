@@ -334,8 +334,17 @@ clone required. In any Claude Code session:
 |---|---|
 | `/jasper-deploy:doctor` | Preflight the toolchain + server connectivity — **run this first** |
 | `/jasper-deploy:deploy` | Scaffold/compile/deploy a report from SQL or a `.jrxml`, then verify it renders |
-| `/jasper-deploy:promote` | Promote a resource between environments (STAGE → PROD) with a target backup |
+| `/jasper-deploy:promote` | Promote a resource or a whole dashboard suite between environments (STAGE → PROD): plans by default, `-Apply` writes under a journaled, backed-up, self-rolling-back run |
 | `/jasper-deploy:smoke` | Full 24-step lifecycle regression test |
+
+**Safety model** (since [1.3.0](plugins/jasper-deploy/CHANGELOG.md), ported from
+[jrsctl](https://github.com/robertgorsuch/jrsctl)): `promote.ps1`, `compose_dashboard.ps1`,
+`teardown_dashboard.ps1` and `deploy_report.ps1 -Overwrite` print a plan and write
+nothing unless `-Apply` is passed; the gate is enforced inside the shared HTTP helpers,
+any write to a `prod*` profile needs `JRS_ALLOW_PROD_WRITE=1` set by a human, every
+apply run is journaled with per-step compensations (`recover_run.ps1 -RunId <id>
+-Rollback -Apply` undoes it), and `tests/harness.Tests.ps1` proves plan mode issues
+no writes by replaying a recorded server (`tests/mock_jrs.py`).
 
 **Verify:** the four commands above appear in your command list, and Claude
 picks the skill up automatically for JasperReports work — scaffolding jrxml

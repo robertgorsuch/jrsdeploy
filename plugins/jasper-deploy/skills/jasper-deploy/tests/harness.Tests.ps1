@@ -46,8 +46,10 @@ Describe "recorded-server harness (mock_jrs.py + STAGE recording)" {
     if ($script:haveTools) {
         [Environment]::SetEnvironmentVariable("JRS_RUNS_DIR", $script:runs)
         [Environment]::SetEnvironmentVariable("JRS_ALLOW_PROD_WRITE", $null)
-        $script:proc = Start-Process -FilePath $script:py -ArgumentList @("`"$mock`"", "--port", $script:port, "--recording", "`"$rec`"", "--log", "`"$($script:log)`"") `
-            -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $script:tmp "mock.out") -RedirectStandardError (Join-Path $script:tmp "mock.err")
+        $sp = @{ FilePath = $script:py; ArgumentList = @("`"$mock`"", "--port", $script:port, "--recording", "`"$rec`"", "--log", "`"$($script:log)`"")
+                 PassThru = $true; RedirectStandardOutput = (Join-Path $script:tmp "mock.out"); RedirectStandardError = (Join-Path $script:tmp "mock.err") }
+        if (Test-JrsWindows) { $sp.WindowStyle = "Hidden" }   # -WindowStyle is not supported by pwsh on Linux/macOS
+        $script:proc = Start-Process @sp
         $up = $false
         foreach ($i in 1..40) {
             try { $r = Invoke-WebRequest -UseBasicParsing -Uri "$($script:src)/rest_v2/serverInfo" -TimeoutSec 2; if ($r.StatusCode -eq 200) { $up = $true; break } } catch { Start-Sleep -Milliseconds 250 }
