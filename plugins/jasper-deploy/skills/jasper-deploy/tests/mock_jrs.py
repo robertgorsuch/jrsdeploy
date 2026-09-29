@@ -86,11 +86,11 @@ def make_zip(uris):
     """A minimal archive that import_resource/compose accept structurally."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        idx = ['<?xml version="1.0" encoding="UTF-8"?>', '<export exportedVersion="10.0.0">', '<module id="repositoryResources">']
-        for u in uris:
-            idx.append("<resource>%s</resource>" % u)
-        idx.append("</module></export>")
-        z.writestr("index.xml", "\n".join(idx))
+        # a real JRS export writes the whole <export> element on ONE line; keep that shape
+        idx = '<?xml version="1.0" encoding="UTF-8"?>\n<export exportedVersion="10.0.0"><module id="repositoryResources">'
+        idx += "".join("<resource>%s</resource>" % u for u in uris)
+        idx += "</module></export>"
+        z.writestr("index.xml", idx)
         for u in uris:
             z.writestr("resources" + u + ".xml", '<reportUnit exportedWithPermissions="false"><folder>%s</folder><name>%s</name></reportUnit>' % (u.rsplit("/", 1)[0], u.rsplit("/", 1)[1]))
     return buf.getvalue()
@@ -201,7 +201,7 @@ class Handler(BaseHTTPRequestHandler):
             if method == "PUT":
                 existed = uri in st.resources and uri not in st.deleted
                 try:
-                    doc = json.loads(body.decode("utf-8")) if body else {}
+                    doc = json.loads(body.decode("utf-8-sig")) if body else {}
                 except Exception:
                     doc = {}
                 if not isinstance(doc, dict):
@@ -227,7 +227,8 @@ class Handler(BaseHTTPRequestHandler):
         # --- export ------------------------------------------------------------
         if path == "/rest_v2/export" and method == "POST":
             try:
-                req = json.loads(body.decode("utf-8"))
+                # Windows PowerShell 5.1 writes the request file with a UTF-8 BOM: tolerate it
+                req = json.loads(body.decode("utf-8-sig"))
                 uris = list(req.get("uris") or [])
             except Exception:
                 uris = []

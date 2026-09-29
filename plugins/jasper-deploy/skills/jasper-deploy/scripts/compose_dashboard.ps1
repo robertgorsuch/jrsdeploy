@@ -205,7 +205,8 @@ Copy-Item (Join-Path $genX "$rel/${name}_files") $dst -Recurse -Force
 # point index.xml's repositoryResources at the dashboard (reports stay as deps)
 $indexPath = Join-Path $tree "index.xml"
 $idx = Get-Content $indexPath -Raw
-$idx = [regex]::Replace($idx, '<module id="repositoryResources">.*?</module>',
+# (?s): a real export keeps <export> on one line, but tolerate a pretty-printed index
+$idx = [regex]::Replace($idx, '(?s)<module id="repositoryResources">.*?</module>',
     "<module id=`"repositoryResources`"><resource>$dashUri</resource></module>")
 Set-Content $indexPath -Value $idx -Encoding utf8 -NoNewline
 
